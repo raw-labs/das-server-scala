@@ -1,13 +1,13 @@
-/**
+/*
  * Copyright 2024 RAW Labs S.A.
- * All rights reserved.
  *
- * This source code is the property of RAW Labs S.A. It contains
- * proprietary and confidential information that is protected by applicable
- * intellectual property and other laws. Unauthorized use, reproduction,
- * or distribution of this code, or any portion of it, may result in severe
- * civil and criminal penalties and will be prosecuted to the maximum
- * extent possible under the law.
+ * Use of this software is governed by the Business Source License
+ * included in the file licenses/BSL.txt.
+ *
+ * As of the Change Date specified in that file, in accordance with
+ * the Business Source License, use of this software will be governed
+ * by the Apache License, Version 2.0, included in the file
+ * licenses/APL.txt.
  */
 
 package com.rawlabs.das.server
@@ -301,9 +301,7 @@ class Cache extends RawService {
                 readerCount.get()
               )
               // Notify the writer if this reader is the most advanced reader, as it can now write more data
-              if (
-                mostAdvancedReader.updateAndGet(oldPosition => math.max(oldPosition, currentIndex)) == currentIndex
-              ) {
+              if (mostAdvancedReader.updateAndGet(oldPosition => math.max(oldPosition, currentIndex)) == currentIndex) {
                 notFull.signalAll()
               }
             }
