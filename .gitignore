@@ -1,0 +1,5 @@
+*.class
+.metals/
+.git/
+.vscode/
+target/
