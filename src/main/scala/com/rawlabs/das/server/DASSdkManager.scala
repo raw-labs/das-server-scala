@@ -99,7 +99,10 @@ class DASSdkManager(implicit settings: RawSettings) extends StrictLogging {
   def getDAS(dasId: DASId): DASSdk = {
     dasSdksInMemoryLock.synchronized {
       logger.debug(s"Fetching DAS with ID: $dasId")
-      dasSdksInMemory.getOrElseUpdate(dasId, getDASFromRemote(dasId))
+      dasSdksInMemory.getOrElseUpdate(
+        dasId,
+        getDASFromRemote(dasId).getOrElse(throw new IllegalArgumentException(s"DAS not found: $dasId"))
+      )
     }
   }
 
@@ -166,10 +169,8 @@ class DASSdkManager(implicit settings: RawSettings) extends StrictLogging {
    * @param dasId The DAS ID to retrieve.
    * @return The DAS instance.
    */
-  private def getDASFromRemote(dasId: DASId): DASSdk = {
-    logger.error(s"getDASFromRemote not implemented for DAS ID: $dasId")
-    // TODO: Implement this method - go to creds to get the definition
-    throw new NotImplementedError("getDASFromRemote not implemented")
+  private def getDASFromRemote(dasId: DASId): Option[DASSdk] = {
+    None
   }
 
 }
