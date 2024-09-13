@@ -28,7 +28,7 @@ import scala.collection.mutable
  * @param provider Provides access to DAS (Data Access Service) instances.
  * @param cache Cache for storing query results.
  */
-class TableServiceGrpcImpl(provider: DASSdkManager, cache: Cache)
+class TableServiceGrpcImpl(provider: DASSdkManager, cache: DASResultCache)
     extends TablesServiceGrpc.TablesServiceImplBase
     with StrictLogging {
 
@@ -166,78 +166,60 @@ class TableServiceGrpcImpl(provider: DASSdkManager, cache: Cache)
       .getDAS(request.getDasId)
       .getTable(request.getTableId.getName) match {
       case Some(table) =>
-        logger.debug(s"Executing query for Table ID: ${request.getTableId.getName}, Plan ID: ${request.getPlanId}")
-        val result = table.execute(
-          request.getQualsList.asScala,
-          request.getColumnsList.asScala,
-          if (request.hasSortKeys) Some(request.getSortKeys.getSortKeysList.asScala) else None,
-          if (request.hasLimit) Some(request.getLimit) else None
-        )
-        val context = Context.current()
-        val MAX_CHUNK_SIZE = 100
-        logger.debug(
-          s"Creating iterator (chunk size $MAX_CHUNK_SIZE rows) for query execution for Table ID: ${request.getTableId.getName}, Plan ID: ${request.getPlanId}"
-        )
+        def task(): Iterator[Rows] with Closeable = {
+          logger.debug(s"Executing query for Table ID: ${request.getTableId.getName}, Plan ID: ${request.getPlanId}")
+          val result = table.execute(
+            request.getQualsList.asScala,
+            request.getColumnsList.asScala,
+            if (request.hasSortKeys) Some(request.getSortKeys.getSortKeysList.asScala) else None,
+            if (request.hasLimit) Some(request.getLimit) else None
+          )
+
+          val MAX_CHUNK_SIZE = 100
+          logger.debug(
+            s"Creating iterator (chunk size $MAX_CHUNK_SIZE rows) for query execution for Table ID: ${request.getTableId.getName}, Plan ID: ${request.getPlanId}"
+          )
+          // Wrap the result processing logic in the iterator
+          new ChunksIterator(request, result, MAX_CHUNK_SIZE)
+        }
+
         // Wrap the result processing logic in the iterator
-        val it = new ChunksIterator(result, MAX_CHUNK_SIZE)
+        val it = {
+          DASChunksCache.get(request) match {
+            case Some(cachedChunks) =>
+              logger.debug(s"Using cached chunks for Table ID: ${request.getTableId.getName}")
+              val cachedChunksIterator = cachedChunks.iterator
+              new Iterator[Rows] with Closeable {
+                override def hasNext: Boolean = cachedChunksIterator.hasNext
+
+                override def next(): Rows = cachedChunksIterator.next()
+
+                override def close(): Unit = {}
+              }
+            case None =>
+              logger.debug(s"Cache miss for Table ID: ${request.getTableId.getName}")
+              task()
+          }
+        }
+
+        val context = Context.current()
         try {
           it.foreach { rows =>
             if (context.isCancelled) {
               logger.warn("Context cancelled during query execution. Closing reader.")
-              it.close()
               return
             }
             responseObserver.onNext(rows)
           }
-          responseObserver.onCompleted()
           logger.debug("Query execution completed successfully.")
+          responseObserver.onCompleted()
         } catch {
           case ex: Exception =>
             logger.error("Error occurred during query execution.", ex)
-            it.close()
             responseObserver.onError(ex)
+        } finally {
+          it.close()
         }
-//        assert(request.hasPlanId, "Plan ID is required for caching query results.")
-//
-//        def task(): Iterator[Rows] with Closeable = {
-//          logger.debug(s"Executing query for Table ID: ${request.getTableId.getName}, Plan ID: ${request.getPlanId}")
-//          val result = table.execute(
-//            request.getQualsList.asScala,
-//            request.getColumnsList.asScala,
-//            if (request.hasSortKeys) Some(request.getSortKeys.getSortKeysList.asScala) else None,
-//            if (request.hasLimit) Some(request.getLimit) else None
-//          )
-//
-//          val MAX_CHUNK_SIZE = 100
-//          logger.debug(
-//            s"Creating iterator (chunk size $MAX_CHUNK_SIZE rows) for query execution for Table ID: ${request.getTableId.getName}, Plan ID: ${request.getPlanId}"
-//          )
-//          // Wrap the result processing logic in the iterator
-//          new ChunksIterator(result, MAX_CHUNK_SIZE)
-//        }
-//
-//        val cacheKey = s"${request.getTableId.getName}:${request.getPlanId}"
-//        logger.debug(s"Storing result in cache with key: $cacheKey")
-//        cache.writeIfNotExists(cacheKey, task())
-//
-//        val it = cache.read(cacheKey)
-//        try {
-//          it.foreach { rows =>
-//            if (context.isCancelled) {
-//              logger.warn("Context cancelled during query execution. Closing reader.")
-//              it.close()
-//              return
-//            }
-//            responseObserver.onNext(rows)
-//          }
-//          responseObserver.onCompleted()
-//          logger.debug("Query execution completed successfully.")
-//        } catch {
-//          case ex: Exception =>
-//            logger.error("Error occurred during query execution.", ex)
-//            it.close()
-//            responseObserver.onError(ex)
-//        }
       case None =>
         logger.error(s"Table ${request.getTableId.getName} not found.")
         responseObserver.onError(new RuntimeException(s"Table ${request.getTableId.getName} not found"))
@@ -388,24 +370,41 @@ class TableServiceGrpcImpl(provider: DASSdkManager, cache: Cache)
 /**
  * Iterator implementation for processing query results in chunks.
  *
+ * @param request The request containing query details (used to build a cache key).
  * @param resultIterator The iterator of query results.
  * @param maxChunkSize The maximum size of each chunk.
  */
 class ChunksIterator(
+    request: ExecuteRequest,
     resultIterator: Iterator[Row] with Closeable,
     maxChunkSize: Int
 ) extends Iterator[Rows]
     with Closeable
     with StrictLogging {
 
-  private val currentChunk: mutable.Buffer[Row] = mutable.Buffer.empty
+  logger.debug(s"Initializing ChunksIterator with maxChunkSize: $maxChunkSize, request: $request")
+
+  private val currentChunk = mutable.Buffer[Row]()
+  private val maxChunksToCache = 5
+  private var chunkCounter = 0
+  private var eofReached = false
+
+  private val completeChunkCache = mutable.Buffer[Rows]()
 
   /**
    * Checks if there are more rows to process.
    *
    * @return true if there are more rows, false otherwise.
    */
-  override def hasNext: Boolean = resultIterator.hasNext || currentChunk.nonEmpty
+  override def hasNext: Boolean = {
+    val hasNext = resultIterator.hasNext || currentChunk.nonEmpty
+    logger.debug(s"hasNext() called. hasNext: $hasNext")
+    if (!hasNext) {
+      eofReached = true
+      logger.debug("EOF reached in hasNext()")
+    }
+    hasNext
+  }
 
   /**
    * Retrieves the next chunk of rows.
@@ -413,16 +412,51 @@ class ChunksIterator(
    * @return The next chunk of rows.
    */
   override def next(): Rows = {
-    if (!hasNext) throw new NoSuchElementException("No more elements")
+    if (!hasNext) {
+      logger.debug("No more elements in next()")
+      throw new NoSuchElementException("No more elements")
+    }
 
+    logger.debug(s"Fetching next chunk. Chunk counter: $chunkCounter")
+
+    val nextChunk = getNextChunk()
+
+    logger.debug(s"Next chunk fetched with ${nextChunk.getRowsCount} rows")
+
+    // Cache the chunks up to a certain limit
+    if (chunkCounter < maxChunksToCache) {
+      // Append the chunk to the cache
+      completeChunkCache.append(nextChunk)
+      logger.debug(s"Appended chunk to cache. Cache size: ${completeChunkCache.size}")
+
+      // If we reached the end of the result set (or this is the last chunk, since it's not complete),
+      // cache the complete chunks read thus far for future use
+      if (eofReached || nextChunk.getRowsCount < maxChunkSize) {
+        logger.debug("Reached end of result set or last incomplete chunk. Caching complete chunks.")
+        DASChunksCache.put(request, completeChunkCache)
+        logger.debug("Chunks cached successfully.")
+      }
+    } else if (chunkCounter == maxChunksToCache) {
+      // We bail out of trying to cache chunks because it's getting too big
+      completeChunkCache.clear()
+      logger.debug("Reached maxChunksToCache limit. Cleared completeChunkCache.")
+    }
+
+    chunkCounter += 1
+    logger.debug(s"Incremented chunk counter to $chunkCounter")
+    nextChunk
+  }
+
+  // Builds a chunk of rows by reading from the result iterator.
+  private def getNextChunk(): Rows = {
     currentChunk.clear()
-
+    logger.debug("Cleared currentChunk")
     while (resultIterator.hasNext && currentChunk.size < maxChunkSize) {
       currentChunk += resultIterator.next()
     }
-
-    // Return the current chunk
-    Rows.newBuilder().addAllRows(currentChunk.asJava).build()
+    val rows = Rows.newBuilder().addAllRows(currentChunk.asJava).build()
+    logger.debug(s"Built next chunk with ${currentChunk.size} rows")
+    rows
   }
 
   /**
@@ -430,6 +464,7 @@ class ChunksIterator(
    */
   override def close(): Unit = {
     resultIterator.close()
+    logger.debug(s"Closed resultIterator for $request")
   }
 
 }
