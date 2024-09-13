@@ -21,7 +21,7 @@ class DASServer(implicit settings: RawSettings) {
   private[this] var server: Server = _
 
   private val dasSdkManager = new DASSdkManager
-  private val cache = new Cache()
+  private val cache = new DASResultCache()
 
   private val registrationService = RegistrationServiceGrpc.bindService(new RegistrationServiceGrpcImpl(dasSdkManager))
   private val tablesService = TablesServiceGrpc.bindService(new TableServiceGrpcImpl(dasSdkManager, cache))

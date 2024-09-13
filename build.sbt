@@ -94,7 +94,9 @@ lazy val publishSettings = Seq(
   versionScheme := Some("early-semver"),
   publish / skip := false,
   publishMavenStyle := true,
-  publishTo := Some("GitHub raw-labs Apache Maven Packages" at "https://maven.pkg.github.com/raw-labs/das-server-scala"),
+  publishTo := Some(
+    "GitHub raw-labs Apache Maven Packages" at "https://maven.pkg.github.com/raw-labs/das-server-scala"
+  ),
   publishConfiguration := publishConfiguration.value.withOverwrite(isCI)
 )
 
