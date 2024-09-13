@@ -15,7 +15,7 @@ package com.rawlabs.das.server
 import com.typesafe.scalalogging.StrictLogging
 import io.grpc._
 
-class ExceptionHandlingInterceptor extends ServerInterceptor with StrictLogging {
+class ThrowableHandlingInterceptor extends ServerInterceptor with StrictLogging {
 
   override def interceptCall[ReqT, RespT](
       call: ServerCall[ReqT, RespT],
@@ -25,7 +25,7 @@ class ExceptionHandlingInterceptor extends ServerInterceptor with StrictLogging 
 
     val serverCall = new ForwardingServerCall.SimpleForwardingServerCall[ReqT, RespT](call) {
       override def close(status: Status, trailers: Metadata): Unit = {
-        // Convert any exception to a gRPC status
+        // Convert any throwable to a gRPC status
         if (status.getCause != null) {
           val newStatus = status.withDescription(status.getCause.getMessage).withCause(status.getCause)
           super.close(newStatus, trailers)
@@ -42,10 +42,10 @@ class ExceptionHandlingInterceptor extends ServerInterceptor with StrictLogging 
         try {
           super.onHalfClose()
         } catch {
-          case ex: Exception =>
-            logger.debug(s"Exception caught in interceptor", ex)
+          case t: Throwable =>
+            logger.debug(s"Throwable caught in interceptor", t)
             // Close the call with an error status
-            serverCall.close(Status.INTERNAL.withDescription(ex.getMessage).withCause(ex), new Metadata())
+            serverCall.close(Status.INTERNAL.withDescription(t.getMessage).withCause(t), new Metadata())
         }
       }
     }

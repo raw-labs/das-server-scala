@@ -31,7 +31,7 @@ class DASServer(implicit settings: RawSettings) {
       .forPort(port)
       .addService(registrationService)
       .addService(tablesService)
-      .intercept(new ExceptionHandlingInterceptor)
+      .intercept(new ThrowableHandlingInterceptor)
       .build()
       .start()
   }
