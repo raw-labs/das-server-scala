@@ -12,7 +12,7 @@
 
 package com.rawlabs.das.server
 
-import com.rawlabs.protocol.das.services.{RegistrationServiceGrpc, TablesServiceGrpc}
+import com.rawlabs.protocol.das.services.{HealthCheckServiceGrpc, RegistrationServiceGrpc, TablesServiceGrpc}
 import com.rawlabs.utils.core.RawSettings
 import io.grpc.{Server, ServerBuilder}
 
@@ -23,12 +23,14 @@ class DASServer(implicit settings: RawSettings) {
   private val dasSdkManager = new DASSdkManager
   private val cache = new DASResultCache()
 
+  private val healthCheckService = HealthCheckServiceGrpc.bindService(new HealthCheckServiceGrpcImpl)
   private val registrationService = RegistrationServiceGrpc.bindService(new RegistrationServiceGrpcImpl(dasSdkManager))
   private val tablesService = TablesServiceGrpc.bindService(new TableServiceGrpcImpl(dasSdkManager, cache))
 
   def start(port: Int): Unit = {
     server = ServerBuilder
       .forPort(port)
+      .addService(healthCheckService)
       .addService(registrationService)
       .addService(tablesService)
       .intercept(new ThrowableHandlingInterceptor)

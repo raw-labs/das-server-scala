@@ -38,7 +38,8 @@ class RegistrationServiceGrpcImpl(dasSdkManager: DASSdkManager)
     logger.debug(s"Registering DAS with type: ${request.getDefinition.getType}")
     val dasId = dasSdkManager.registerDAS(
       request.getDefinition.getType,
-      request.getDefinition.getOptionsMap.asScala.toMap
+      request.getDefinition.getOptionsMap.asScala.toMap,
+      maybeDasId = if (request.hasId) Some(request.getId) else None
     )
     responseObserver.onNext(dasId)
     responseObserver.onCompleted()
