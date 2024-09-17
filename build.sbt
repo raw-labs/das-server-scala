@@ -115,7 +115,7 @@ lazy val root = (project in file("."))
     strictBuildSettings,
     publishSettings,
     libraryDependencies ++= Seq(
-      "com.raw-labs" %% "protocol-das" % "0.1.1" % "compile->compile;test->test",
+      "com.raw-labs" %% "protocol-das" % "0.1.2" % "compile->compile;test->test",
       "com.raw-labs" %% "das-sdk-scala" % "0.1.0" % "compile->compile;test->test"
     )
   )
