@@ -27,6 +27,8 @@ object DASSdkManager {
 
 // TODO (msb): Remove if NOT USED since M hours AND/OR does not exist in creds if it came from creds
 
+private case class DaSDKInMemoryEntry(options: Map[String, String], dasSdk: DASSdk)
+
 /**
  * Manages the lifecycle of Data Access Services (DAS) in the server.
  *
@@ -38,7 +40,7 @@ class DASSdkManager(implicit settings: RawSettings) extends StrictLogging {
 
   private val dasSdkLoader = ServiceLoader.load(classOf[DASSdkBuilder]).asScala
 
-  private val dasSdksInMemory = mutable.HashMap[DASId, DASSdk]()
+  private val dasSdksInMemory = mutable.HashMap[DASId, DaSDKInMemoryEntry]()
   private val dasSdksInMemoryLock = new Object
 
   // At startup, read any available DAS configurations from the local config file and register them.
@@ -55,21 +57,30 @@ class DASSdkManager(implicit settings: RawSettings) extends StrictLogging {
   def registerDAS(dasType: String, options: Map[String, String], maybeDasId: Option[DASId] = None): DASId = {
     dasSdksInMemoryLock.synchronized {
       val dasId = maybeDasId.getOrElse(DASId.newBuilder().setId(java.util.UUID.randomUUID().toString).build())
-      if (dasSdksInMemory.contains(dasId)) {
-        logger.error(s"DAS with ID $dasId is already registered.")
-        throw new IllegalArgumentException(s"DAS with id $dasId already registered")
+      dasSdksInMemory.get(dasId) match {
+        case Some(DaSDKInMemoryEntry(inMemoryOptions, _)) =>
+          if (compareOptions(inMemoryOptions, options)) {
+            logger.warn(s"DAS with ID $dasId is already registered with the same options.")
+            return dasId
+          } else {
+            logger.error(
+              s"DAS with ID $dasId is already registered. Registered options are: $inMemoryOptions and new options are: $options"
+            )
+            throw new IllegalArgumentException(s"DAS with id $dasId already registered")
+          }
+        case None =>
+          logger.debug(s"Registering DAS with ID: $dasId, Type: $dasType")
+          val dasSdk = dasSdkLoader
+            .find(_.dasType == dasType)
+            .getOrElse {
+              logger.error(s"DAS type '$dasType' not supported.")
+              throw new IllegalArgumentException(s"DAS type '$dasType' not supported")
+            }
+            .build(options)
+          dasSdksInMemory.put(dasId, DaSDKInMemoryEntry(options, dasSdk))
+          logger.debug(s"DAS registered successfully with ID: $dasId")
+          dasId
       }
-      logger.debug(s"Registering DAS with ID: $dasId, Type: $dasType")
-      val dasSdk = dasSdkLoader
-        .find(_.dasType == dasType)
-        .getOrElse {
-          logger.error(s"DAS type '$dasType' not supported.")
-          throw new IllegalArgumentException(s"DAS type '$dasType' not supported")
-        }
-        .build(options)
-      dasSdksInMemory.put(dasId, dasSdk)
-      logger.debug(s"DAS registered successfully with ID: $dasId")
-      dasId
     }
   }
 
@@ -103,7 +114,7 @@ class DASSdkManager(implicit settings: RawSettings) extends StrictLogging {
         dasId,
         getDASFromRemote(dasId).getOrElse(throw new IllegalArgumentException(s"DAS not found: $dasId"))
       )
-    }
+    }.dasSdk
   }
 
   /**
@@ -169,8 +180,14 @@ class DASSdkManager(implicit settings: RawSettings) extends StrictLogging {
    * @param dasId The DAS ID to retrieve.
    * @return The DAS instance.
    */
-  private def getDASFromRemote(dasId: DASId): Option[DASSdk] = {
+  private def getDASFromRemote(dasId: DASId): Option[DaSDKInMemoryEntry] = {
     None
+  }
+
+  // Compare options to determine if two DAS instances are the same.
+  // Ignore options that start with "das_" as they are internal to the DAS SDK.
+  private def compareOptions(options1: Map[String, String], options2: Map[String, String]): Boolean = {
+    options1.filterKeys(!_.startsWith("das_")) == options2.filterKeys(!_.startsWith("das_"))
   }
 
 }
