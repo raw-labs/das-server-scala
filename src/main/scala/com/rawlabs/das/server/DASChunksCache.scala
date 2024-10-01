@@ -14,7 +14,6 @@ package com.rawlabs.das.server
 
 import com.google.common.cache.{Cache, CacheBuilder}
 import com.rawlabs.protocol.das.Rows
-import com.rawlabs.protocol.das.services.ExecuteRequest
 import com.typesafe.scalalogging.StrictLogging
 
 import scala.collection.mutable
@@ -29,14 +28,14 @@ object DASChunksCache extends StrictLogging {
     .maximumSize(N)
     .build()
 
-  def put(request: ExecuteRequest, all: mutable.Buffer[Rows]): Unit = {
+  def put(request: String, all: mutable.Buffer[Rows]): Unit = {
     logger.debug(s"Putting request in cache: $request")
-    cache.put(request.toString, all)
+    cache.put(request, all)
   }
 
-  def get(request: ExecuteRequest): Option[mutable.Buffer[Rows]] = {
+  def get(request: String): Option[mutable.Buffer[Rows]] = {
     logger.debug(s"Getting request from cache: $request")
-    val r = Option(cache.getIfPresent(request.toString))
+    val r = Option(cache.getIfPresent(request))
     logger.debug(s"Cache hit: ${r.isDefined}")
     r
   }
