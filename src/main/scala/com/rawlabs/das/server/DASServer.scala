@@ -12,7 +12,14 @@
 
 package com.rawlabs.das.server
 
-import com.rawlabs.protocol.das.services.{HealthCheckServiceGrpc, RegistrationServiceGrpc, TablesServiceGrpc}
+import com.rawlabs.protocol.das.services.{
+  HealthCheckServiceGrpc,
+  RegistrationServiceGrpc,
+  SqlServiceGrpc,
+  TableDefinitionsServiceGrpc,
+  TableQueryServiceGrpc,
+  TableUpdateServiceGrpc
+}
 import com.rawlabs.utils.core.RawSettings
 import io.grpc.{Server, ServerBuilder}
 
@@ -25,14 +32,22 @@ class DASServer(implicit settings: RawSettings) {
 
   private val healthCheckService = HealthCheckServiceGrpc.bindService(new HealthCheckServiceGrpcImpl)
   private val registrationService = RegistrationServiceGrpc.bindService(new RegistrationServiceGrpcImpl(dasSdkManager))
-  private val tablesService = TablesServiceGrpc.bindService(new TableServiceGrpcImpl(dasSdkManager, cache))
+  private val tableDefinitionsService =
+    TableDefinitionsServiceGrpc.bindService(new TableDefinitionServiceGrpcImpl(dasSdkManager, cache))
+  private val tableQueryService = TableQueryServiceGrpc.bindService(new TableQueryServiceGrpcImpl(dasSdkManager, cache))
+  private val tableUpdateService =
+    TableUpdateServiceGrpc.bindService(new TableUpdateServiceGrpcImpl(dasSdkManager, cache))
+  private val sqlService = SqlServiceGrpc.bindService(new SqlServiceGrpcImpl(dasSdkManager, cache))
 
   def start(port: Int): Unit = {
     server = ServerBuilder
       .forPort(port)
       .addService(healthCheckService)
       .addService(registrationService)
-      .addService(tablesService)
+      .addService(tableDefinitionsService)
+      .addService(tableQueryService)
+      .addService(tableUpdateService)
+      .addService(sqlService)
       .intercept(new ThrowableHandlingInterceptor)
       .build()
       .start()

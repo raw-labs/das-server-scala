@@ -13,7 +13,12 @@
 package com.rawlabs.das.server
 
 import com.rawlabs.protocol.das.DASId
-import com.rawlabs.protocol.das.services.{RegisterRequest, RegistrationServiceGrpc, UnregisterResponse}
+import com.rawlabs.protocol.das.services.{
+  OperationsSupportedResponse,
+  RegisterRequest,
+  RegistrationServiceGrpc,
+  UnregisterResponse
+}
 import com.typesafe.scalalogging.StrictLogging
 import io.grpc.stub.StreamObserver
 
@@ -44,6 +49,20 @@ class RegistrationServiceGrpcImpl(dasSdkManager: DASSdkManager)
     responseObserver.onNext(dasId)
     responseObserver.onCompleted()
     logger.debug(s"DAS registered successfully with ID: $dasId")
+  }
+
+  /**
+   * Checks which operations are supported by the DAS instance with the provided DAS ID.
+   *
+   * @param dasId The DAS ID to check.
+   * @param streamObserver The observer to send responses.
+   */
+  override def operationsSupported(dasId: DASId, streamObserver: StreamObserver[OperationsSupportedResponse]): Unit = {
+    logger.debug(s"Checking operations supported for DAS with ID: ${dasId.getId}")
+    val dasSdk = dasSdkManager.getDAS(dasId)
+    streamObserver.onNext(dasSdk.operationsSupported)
+    streamObserver.onCompleted()
+    logger.debug(s"Operations supported for DAS with ID: ${dasId.getId} sent successfully.")
   }
 
   /**
