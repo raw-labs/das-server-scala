@@ -22,7 +22,8 @@ lazy val commonSettings = Seq(
   resolvers += "GHR snapi repo" at "https://maven.pkg.github.com/raw-labs/snapi",
   resolvers += "GHR protocol-das repo" at "https://maven.pkg.github.com/raw-labs/protocol-das",
   resolvers ++= Resolver.sonatypeOssRepos("snapshots"),
-  resolvers ++= Resolver.sonatypeOssRepos("releases")
+  resolvers ++= Resolver.sonatypeOssRepos("releases"),
+  updateOptions := updateOptions.value.withLatestSnapshots(true)
 )
 
 lazy val buildSettings = Seq(
@@ -112,6 +113,6 @@ lazy val root = (project in file("."))
     strictBuildSettings,
     publishSettings,
     libraryDependencies ++= Seq(
-      "com.raw-labs" %% "das-sdk-scala" % "0.1.3-main-SNAPSHOT" % "compile->compile;test->test"
+      "com.raw-labs" %% "das-sdk-scala" % "0.1.3-sql-support-SNAPSHOT" % "compile->compile;test->test"
     )
   )
