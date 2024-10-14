@@ -12,7 +12,7 @@
 
 package com.rawlabs.das.server
 
-import com.rawlabs.protocol.das.{Row, Rows}
+import com.rawlabs.protocol.das.{Column, Row, Rows}
 import com.rawlabs.protocol.raw.{Value, ValueInt}
 
 import java.io.Closeable
@@ -30,7 +30,13 @@ object DASResultCacheTest extends App {
         .addRows(
           Row
             .newBuilder()
-            .putAllData(Map("col1" -> Value.newBuilder().setInt(ValueInt.newBuilder().setV(i)).build()).asJava)
+            .addColumns(
+              Column
+                .newBuilder()
+                .setName("col1")
+                .setData(Value.newBuilder().setInt(ValueInt.newBuilder().setV(i)))
+                .build()
+            )
         )
         .build()
     }
@@ -50,7 +56,7 @@ object DASResultCacheTest extends App {
     var i = 0
     reader1.foreach { v =>
       i += 1
-      println("Thread 1 data: " + v.getRowsList.asScala.map(_.getDataMap.asScala))
+      println("Thread 1 data: " + v.getRowsList.asScala.map(_.getColumnsList.asScala))
     }
     println("Thread 1 read " + i + " rows")
     reader1.close()
@@ -60,7 +66,7 @@ object DASResultCacheTest extends App {
     var i = 0
     reader2.foreach { v =>
       i += 1
-      println("Thread 2 data: " + v.getRowsList.asScala.map(_.getDataMap.asScala))
+      println("Thread 2 data: " + v.getRowsList.asScala.map(_.getColumnsList.asScala))
     }
     println("Thread 2 read " + i + " rows")
     reader2.close()

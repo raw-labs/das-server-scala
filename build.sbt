@@ -19,6 +19,10 @@ lazy val commonSettings = Seq(
   // http://www.scala-sbt.org/0.13/docs/Cached-Resolution.html
   updateOptions := updateOptions.in(Global).value.withCachedResolution(true),
   resolvers += "RAW Labs GitHub Packages" at "https://maven.pkg.github.com/raw-labs/_"
+  resolvers ++= Seq(Resolver.mavenLocal),
+  resolvers ++= Resolver.sonatypeOssRepos("snapshots"),
+  resolvers ++= Resolver.sonatypeOssRepos("releases"),
+  updateOptions := updateOptions.value.withLatestSnapshots(true)
 )
 
 lazy val buildSettings = Seq(
@@ -108,6 +112,6 @@ lazy val root = (project in file("."))
     strictBuildSettings,
     publishSettings,
     libraryDependencies ++= Seq(
-      "com.raw-labs" %% "das-sdk-scala" % "0.1.3-main-SNAPSHOT" % "compile->compile;test->test"
+      "com.raw-labs" %% "das-sdk-scala" % "0.1.3-sql-support-SNAPSHOT" % "compile->compile;test->test"
     )
   )
