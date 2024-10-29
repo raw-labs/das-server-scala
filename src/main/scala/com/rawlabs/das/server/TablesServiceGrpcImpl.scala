@@ -19,14 +19,32 @@ import io.grpc.stub.StreamObserver
 import scala.collection.JavaConverters._
 
 /**
- * Implementation of the gRPC service for handling table update operations.
+ * Implementation of the gRPC service for handling table operations.
  *
  * @param provider Provides access to DAS (Data Access Service) instances.
  * @param cache Cache for storing query results.
  */
-class TableUpdateServiceGrpcImpl(provider: DASSdkManager, cache: DASResultCache)
-    extends TableUpdateServiceGrpc.TableUpdateServiceImplBase
+class TablesServiceGrpcImpl(provider: DASSdkManager, cache: DASResultCache)
+    extends TablesServiceGrpc.TablesServiceImplBase
     with StrictLogging {
+
+  /**
+   * Retrieves table definitions based on the DAS ID provided in the request.
+   *
+   * @param request The request containing the DAS ID.
+   * @param responseObserver The observer to send responses.
+   */
+  override def getTableDefinitions(
+      request: GetTableDefinitionsRequest,
+      responseObserver: StreamObserver[GetTableDefinitionsResponse]
+  ): Unit = {
+    logger.debug(s"Fetching table definitions for DAS ID: ${request.getDasId}")
+    val tableDefinitions = provider.getDAS(request.getDasId).tableDefinitions
+    val response = GetTableDefinitionsResponse.newBuilder().addAllDefinitions(tableDefinitions.asJava).build()
+    responseObserver.onNext(response)
+    responseObserver.onCompleted()
+    logger.debug("Table definitions sent successfully.")
+  }
 
   /**
    * Retrieves the unique columns of the specified table.

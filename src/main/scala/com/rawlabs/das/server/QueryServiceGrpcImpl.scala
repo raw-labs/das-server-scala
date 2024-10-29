@@ -19,14 +19,33 @@ import io.grpc.Context
 import io.grpc.stub.StreamObserver
 
 /**
- * Implementation of the gRPC service for handling table-related operations.
+ * Implementation of the gRPC service for query operations.
  *
  * @param provider Provides access to DAS (Data Access Service) instances.
  * @param cache Cache for storing query results.
  */
-class SqlServiceGrpcImpl(provider: DASSdkManager, cache: DASResultCache)
-    extends SqlServiceGrpc.SqlServiceImplBase
+class QueryServiceGrpcImpl(provider: DASSdkManager, cache: DASResultCache)
+    extends QueryServiceGrpc.QueryServiceImplBase
     with StrictLogging {
+
+  /**
+   * Retrieves an estimate of the number of rows and bytes that a query will return.
+   *
+   * @param queryRequest The request containing the query.
+   * @param streamObserver The observer to send responses.
+   */
+  override def getQueryEstimate(
+      queryRequest: QueryRequest,
+      streamObserver: StreamObserver[GetQueryEstimateResponse]
+  ): Unit = {
+    logger.debug(s"Getting query estimate for SQL: ${queryRequest.getSql}")
+    val dasSdk = provider.getDAS(queryRequest.getDasId)
+    val (rows, bytes) = dasSdk.estimateQuery(queryRequest.getSql)
+    val response = GetQueryEstimateResponse.newBuilder().setRows(rows).setBytes(bytes).build()
+    streamObserver.onNext(response)
+    streamObserver.onCompleted()
+    logger.debug("Query estimate sent successfully.")
+  }
 
   /**
    * Executes a query on the specified table and streams the results.
@@ -34,10 +53,10 @@ class SqlServiceGrpcImpl(provider: DASSdkManager, cache: DASResultCache)
    * @param request The request containing query details.
    * @param responseObserver The observer to send responses.
    */
-  override def sqlQuery(request: SqlQueryRequest, responseObserver: StreamObserver[Rows]): Unit = {
+  override def executeQuery(request: QueryRequest, responseObserver: StreamObserver[Rows]): Unit = {
     logger.debug(s"Executing SQL query: ${request.getSql}")
     val dasSdk = provider.getDAS(request.getDasId)
-    val result = dasSdk.sqlQuery(request.getSql)
+    val result = dasSdk.executeQuery(request.getSql)
 
     val MAX_CHUNK_SIZE = 100
     logger.debug(
