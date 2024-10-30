@@ -12,6 +12,7 @@
 
 package com.rawlabs.das.server
 
+import com.rawlabs.das.sdk.DASSQLParser
 import com.rawlabs.protocol.das.Rows
 import com.rawlabs.protocol.das.services._
 import com.typesafe.scalalogging.StrictLogging
@@ -40,11 +41,15 @@ class QueryServiceGrpcImpl(provider: DASSdkManager, cache: DASResultCache)
   ): Unit = {
     logger.debug(s"Getting query estimate for SQL: ${queryRequest.getSql}")
     val dasSdk = provider.getDAS(queryRequest.getDasId)
-    val (rows, bytes) = dasSdk.estimateQuery(queryRequest.getSql)
-    val response = GetQueryEstimateResponse.newBuilder().setRows(rows).setBytes(bytes).build()
-    streamObserver.onNext(response)
-    streamObserver.onCompleted()
-    logger.debug("Query estimate sent successfully.")
+    DASSQLParser.parseSQL(queryRequest.getSql) match {
+      case Left(error) => throw new IllegalArgumentException(s"Error parsing SQL: $error")
+      case Right(query) =>
+        val (rows, bytes) = dasSdk.estimateQuery(query)
+        val response = GetQueryEstimateResponse.newBuilder().setRows(rows).setBytes(bytes).build()
+        streamObserver.onNext(response)
+        streamObserver.onCompleted()
+        logger.debug("Query estimate sent successfully.")
+    }
   }
 
   /**
@@ -56,32 +61,36 @@ class QueryServiceGrpcImpl(provider: DASSdkManager, cache: DASResultCache)
   override def executeQuery(request: QueryRequest, responseObserver: StreamObserver[Rows]): Unit = {
     logger.debug(s"Executing SQL query: ${request.getSql}")
     val dasSdk = provider.getDAS(request.getDasId)
-    val result = dasSdk.executeQuery(request.getSql)
+    DASSQLParser.parseSQL(request.getSql) match {
+      case Left(error) => throw new IllegalArgumentException(s"Error parsing SQL: $error")
+      case Right(query) =>
+        val result = dasSdk.executeQuery(query)
 
-    val MAX_CHUNK_SIZE = 100
-    logger.debug(
-      s"Creating iterator (chunk size $MAX_CHUNK_SIZE rows) for query"
-    )
-    // Wrap the result processing logic in the iterator
-    val it = new ChunksIterator(request.toString, result, MAX_CHUNK_SIZE)
+        val MAX_CHUNK_SIZE = 100
+        logger.debug(
+          s"Creating iterator (chunk size $MAX_CHUNK_SIZE rows) for query"
+        )
+        // Wrap the result processing logic in the iterator
+        val it = new ChunksIterator(request.toString, result, MAX_CHUNK_SIZE)
 
-    val context = Context.current()
-    try {
-      it.foreach { rows =>
-        if (context.isCancelled) {
-          logger.warn("Context cancelled during query execution. Closing reader.")
-          return
+        val context = Context.current()
+        try {
+          it.foreach { rows =>
+            if (context.isCancelled) {
+              logger.warn("Context cancelled during query execution. Closing reader.")
+              return
+            }
+            responseObserver.onNext(rows)
+          }
+          logger.debug("Query execution completed successfully.")
+          responseObserver.onCompleted()
+        } catch {
+          case ex: Exception =>
+            logger.error("Error occurred during query execution.", ex)
+            responseObserver.onError(ex)
+        } finally {
+          it.close()
         }
-        responseObserver.onNext(rows)
-      }
-      logger.debug("Query execution completed successfully.")
-      responseObserver.onCompleted()
-    } catch {
-      case ex: Exception =>
-        logger.error("Error occurred during query execution.", ex)
-        responseObserver.onError(ex)
-    } finally {
-      it.close()
     }
   }
 
