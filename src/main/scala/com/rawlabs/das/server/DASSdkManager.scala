@@ -41,6 +41,7 @@ class DASSdkManager(implicit settings: RawSettings) extends StrictLogging {
   private val dasSdkLoader = ServiceLoader.load(classOf[DASSdkBuilder]).asScala
 
   private val dasSdksInMemory = mutable.HashMap[DASId, DaSDKInMemoryEntry]()
+  private val dasSdksPerConfig = mutable.HashMap[Map[String, String], DASSdk]()
   private val dasSdksInMemoryLock = new Object
 
   // At startup, read any available DAS configurations from the local config file and register them.
@@ -59,6 +60,8 @@ class DASSdkManager(implicit settings: RawSettings) extends StrictLogging {
       val dasId = maybeDasId.getOrElse(DASId.newBuilder().setId(java.util.UUID.randomUUID().toString).build())
       dasSdksInMemory.get(dasId) match {
         case Some(DaSDKInMemoryEntry(inMemoryOptions, _)) =>
+          // A DAS with the same ID is already registered. That would be because we restarted the DAS server,
+          // and the client (Postgres) is trying to re-register the DAS. We check if the options are the same.
           if (compareOptions(inMemoryOptions, options)) {
             logger.warn(s"DAS with ID $dasId is already registered with the same options.")
             return dasId
@@ -69,14 +72,28 @@ class DASSdkManager(implicit settings: RawSettings) extends StrictLogging {
             throw new IllegalArgumentException(s"DAS with id $dasId already registered")
           }
         case None =>
-          logger.debug(s"Registering DAS with ID: $dasId, Type: $dasType")
-          val dasSdk = dasSdkLoader
-            .find(_.dasType == dasType)
-            .getOrElse {
-              logger.error(s"DAS type '$dasType' not supported.")
-              throw new IllegalArgumentException(s"DAS type '$dasType' not supported")
-            }
-            .build(options)
+          // The client didn't specify a DAS ID. We generated a new one. We check if
+          // a DAS with the same options is already registered. Because if the client restarted, or is simply
+          // trying to register the same DAS again, we should reuse the existing DAS.
+
+          // Running DASes are indexed by their options. We only compare user visible options (those not starting with "das_")
+          val strippedOptions = options.filterKeys(!_.startsWith("das_"))
+          val dasSdk = dasSdksPerConfig.get(strippedOptions) match {
+            case Some(runningSdk) =>
+              logger.info("DAS with the same options already registered. Reusing it.")
+              runningSdk
+            case None =>
+              logger.info(s"Registering new DAS with ID: $dasId, Type: $dasType")
+              val newDasSdk = dasSdkLoader
+                .find(_.dasType == dasType)
+                .getOrElse {
+                  logger.error(s"DAS type '$dasType' not supported.")
+                  throw new IllegalArgumentException(s"DAS type '$dasType' not supported")
+                }
+                .build(options)
+              dasSdksPerConfig.put(strippedOptions, newDasSdk)
+              newDasSdk
+          }
           dasSdksInMemory.put(dasId, DaSDKInMemoryEntry(options, dasSdk))
           logger.debug(s"DAS registered successfully with ID: $dasId")
           dasId
@@ -91,12 +108,16 @@ class DASSdkManager(implicit settings: RawSettings) extends StrictLogging {
    */
   def unregisterDAS(dasId: DASId): Unit = {
     dasSdksInMemoryLock.synchronized {
-      if (dasSdksInMemory.contains(dasId)) {
-        logger.debug(s"Unregistering DAS with ID: $dasId")
-        dasSdksInMemory.remove(dasId)
-        logger.debug(s"DAS unregistered successfully with ID: $dasId")
-      } else {
-        logger.warn(s"Tried to unregister DAS with ID: $dasId, but it was not found.")
+      dasSdksInMemory.get(dasId) match {
+        case Some(DaSDKInMemoryEntry(options, _)) =>
+          logger.debug(s"Unregistering DAS with ID: $dasId")
+          val strippedOptions = options.filterKeys(!_.startsWith("das_"))
+          dasSdksPerConfig.remove(strippedOptions)
+          dasSdksInMemory.remove(dasId)
+          logger.debug(s"DAS unregistered successfully with ID: $dasId")
+        case None => {
+          logger.warn(s"Tried to unregister DAS with ID: $dasId, but it was not found.")
+        }
       }
     }
   }
