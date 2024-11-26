@@ -12,7 +12,7 @@
 
 package com.rawlabs.das.server
 
-import com.google.common.cache.{CacheBuilder, CacheLoader}
+import com.google.common.cache.{CacheBuilder, CacheLoader, RemovalNotification}
 import com.rawlabs.das.sdk.{DASSdk, DASSdkBuilder}
 import com.rawlabs.protocol.das.DASId
 import com.rawlabs.utils.core.RawSettings
@@ -46,9 +46,14 @@ class DASSdkManager(implicit settings: RawSettings) extends StrictLogging {
   private val dasSdkConfigCacheLock = new Object
   private val dasSdkCache = CacheBuilder
     .newBuilder()
+    .removalListener((notification: RemovalNotification[DASConfig, DASSdk]) => {
+      logger.debug(s"Removing DAS SDK for type: ${notification.getKey.dasType}")
+      // That's where a DAS instance should be closed (e.g. close connections, etc.)
+    })
     .build(new CacheLoader[DASConfig, DASSdk] {
       override def load(dasConfig: DASConfig): DASSdk = {
-        logger.debug(s"Loading DAS SDK for type: ${dasConfig.dasType} (options: ${dasConfig.options})")
+        logger.debug(s"Loading DAS SDK for type: ${dasConfig.dasType}")
+        logger.trace(s"DAS Options: ${dasConfig.options}")
         val dasType = dasConfig.dasType
         dasSdkLoader
           .find(_.dasType == dasType)
@@ -79,11 +84,11 @@ class DASSdkManager(implicit settings: RawSettings) extends StrictLogging {
     dasSdkConfigCacheLock.synchronized {
       dasSdkConfigCache.get(dasId) match {
         case Some(registeredConfig) => if (registeredConfig != config) {
-          logger.error(
-            s"DAS with ID $dasId is already registered. Registered configuration is $registeredConfig and new config is $config"
-          )
-          throw new IllegalArgumentException(s"DAS with id $dasId already registered")
-        }
+            logger.error(
+              s"DAS with ID $dasId is already registered with a different configuration"
+            )
+            throw new IllegalArgumentException(s"DAS with id $dasId already registered")
+          }
         case None => dasSdkConfigCache.put(dasId, config)
       }
     }
