@@ -1,14 +1,11 @@
-import sbt.Keys._
-import sbt._
-
-import java.nio.file.Paths
+import sbt.*
+import sbt.Keys.*
 
 ThisBuild / credentials += Credentials(
   "GitHub Package Registry",
   "maven.pkg.github.com",
   "raw-labs",
-  sys.env.getOrElse("GITHUB_TOKEN", "")
-)
+  sys.env.getOrElse("GITHUB_TOKEN", ""))
 
 lazy val commonSettings = Seq(
   homepage := Some(url("https://www.raw-labs.com/")),
@@ -18,32 +15,20 @@ lazy val commonSettings = Seq(
   // Use cached resolution of dependencies
   // http://www.scala-sbt.org/0.13/docs/Cached-Resolution.html
   updateOptions := updateOptions.in(Global).value.withCachedResolution(true),
-  resolvers += "RAW Labs GitHub Packages" at "https://maven.pkg.github.com/raw-labs/_"
-)
+  resolvers += "RAW Labs GitHub Packages" at "https://maven.pkg.github.com/raw-labs/_")
 
-lazy val buildSettings = Seq(
-  scalaVersion := "2.12.18",
-  javacOptions ++= Seq(
-    "-source",
-    "21",
-    "-target",
-    "21"
-  ),
-  scalacOptions ++= Seq(
-    "-feature",
-    "-unchecked",
-    // When compiling in encrypted drives in Linux, the max size of a name is reduced to around 140
-    // https://unix.stackexchange.com/a/32834
-    "-Xmax-classfile-name",
-    "140",
-    "-deprecation",
-    "-Xlint:-stars-align,_",
-    "-Ywarn-dead-code",
-    "-Ywarn-macros:after", // Fix for false warning of unused implicit arguments in traits/interfaces.
-    "-Ypatmat-exhaust-depth",
-    "160"
-  )
-)
+lazy val buildSettings = Seq(scalaVersion := "2.13.15")
+
+lazy val chronicleFlags = Seq(
+  "--add-exports=java.base/jdk.internal.ref=ALL-UNNAMED",
+  "--add-exports=java.base/sun.nio.ch=ALL-UNNAMED",
+  "--add-exports=jdk.unsupported/sun.misc=ALL-UNNAMED",
+  "--add-exports=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED",
+  "--add-opens=jdk.compiler/com.sun.tools.javac=ALL-UNNAMED",
+  "--add-opens=java.base/java.lang=ALL-UNNAMED",
+  "--add-opens=java.base/java.lang.reflect=ALL-UNNAMED",
+  "--add-opens=java.base/java.io=ALL-UNNAMED",
+  "--add-opens=java.base/java.util=ALL-UNNAMED")
 
 lazy val compileSettings = Seq(
   Compile / doc / sources := Seq.empty,
@@ -51,35 +36,19 @@ lazy val compileSettings = Seq(
   Compile / packageSrc / publishArtifact := true,
   Compile / packageDoc / publishArtifact := false,
   Compile / packageBin / packageOptions += Package.ManifestAttributes(
-    "Automatic-Module-Name" -> name.value.replace('-', '.')
-  ),
-  // Ensure Java annotations get compiled first, so that they are accessible from Scala.
-  compileOrder := CompileOrder.JavaThenScala
-)
+    "Automatic-Module-Name" -> name.value.replace('-', '.')),
+  // Ensure Java-based DAS SDK code is compiled first, so it is accessible from Scala.
+  compileOrder := CompileOrder.JavaThenScala,
+  // Ensure we fork new JVM for run, so we can set JVM flags.
+  Compile / run / fork := true,
+  Compile / run / javaOptions ++= chronicleFlags)
 
 lazy val testSettings = Seq(
-  // Ensuring tests are run in a forked JVM for isolation.
+  // Ensure we fork new JVM for run, so we can set JVM flags.
   Test / fork := true,
-  // Disabling parallel execution of tests.
-  //Test / parallelExecution := false,
-  // Pass system properties starting with "raw." to the forked JVMs.
-  Test / javaOptions ++= {
-    import scala.collection.JavaConverters._
-    val props = System.getProperties
-    props
-      .stringPropertyNames()
-      .asScala
-      .filter(_.startsWith("raw."))
-      .map(key => s"-D$key=${props.getProperty(key)}")
-      .toSeq
-  },
-  // Set up heap dump options for out-of-memory errors.
-  Test / javaOptions ++= Seq(
-    "-XX:+HeapDumpOnOutOfMemoryError",
-    s"-XX:HeapDumpPath=${Paths.get(sys.env.getOrElse("SBT_FORK_OUTPUT_DIR", "target/test-results")).resolve("heap-dumps")}"
-  ),
-  Test / publishArtifact := true
-)
+  Test / javaOptions ++= chronicleFlags,
+  // Required for publishing test artifacts.
+  Test / publishArtifact := true)
 
 val isCI = sys.env.getOrElse("CI", "false").toBoolean
 
@@ -88,16 +57,11 @@ lazy val publishSettings = Seq(
   publish / skip := false,
   publishMavenStyle := true,
   publishTo := Some(
-    "GitHub raw-labs Apache Maven Packages" at "https://maven.pkg.github.com/raw-labs/das-server-scala"
-  ),
-  publishConfiguration := publishConfiguration.value.withOverwrite(isCI)
-)
+    "GitHub raw-labs Apache Maven Packages" at "https://maven.pkg.github.com/raw-labs/das-server-scala"),
+  publishConfiguration := publishConfiguration.value.withOverwrite(isCI))
 
-lazy val strictBuildSettings = commonSettings ++ compileSettings ++ buildSettings ++ testSettings ++ Seq(
-  scalacOptions ++= Seq(
-    "-Xfatal-warnings"
-  )
-)
+lazy val strictBuildSettings =
+  commonSettings ++ compileSettings ++ buildSettings ++ testSettings ++ Seq(scalacOptions ++= Seq("-Xfatal-warnings"))
 
 lazy val root = (project in file("."))
   .enablePlugins(BuildInfoPlugin)
@@ -108,6 +72,30 @@ lazy val root = (project in file("."))
     strictBuildSettings,
     publishSettings,
     libraryDependencies ++= Seq(
-      "com.raw-labs" %% "das-sdk-scala" % "0.1.4" % "compile->compile;test->test"
-    )
-  )
+      // Logging
+      // Using SLF4j as the facade, Logback as the implementation, Loki for log aggregation and with Scala support.
+      "com.typesafe.scala-logging" %% "scala-logging" % "3.9.5",
+      "ch.qos.logback" % "logback-classic" % "1.5.12",
+      "org.slf4j" % "slf4j-api" % "2.0.16",
+      "org.slf4j" % "log4j-over-slf4j" % "2.0.16",
+      "org.slf4j" % "jcl-over-slf4j" % "2.0.16",
+      "org.slf4j" % "jul-to-slf4j" % "2.0.16",
+      "com.github.loki4j" % "loki-logback-appender" % "1.5.2",
+      // Configuration
+      "com.typesafe" % "config" % "1.4.3",
+      // Protocol DAS
+      "com.raw-labs" %% "protocol-das" % "0.1.4-protocol-v1-SNAPSHOT",
+      // Akka Streams
+      "com.typesafe.akka" %% "akka-actor-typed" % "2.8.8",
+      "com.typesafe.akka" %% "akka-actor" % "2.8.8",
+      "com.typesafe.akka" %% "akka-stream" % "2.8.8",
+      "com.typesafe.akka" %% "akka-actor-testkit-typed" % "2.8.8",
+      "com.typesafe.akka" %% "akka-testkit" % "2.8.8",
+      // Chronicle Queue (iterator cache)
+      "net.openhft" % "chronicle-queue" % "5.27ea0",
+      // SQLite
+      "org.xerial" % "sqlite-jdbc" % "3.47.1.0",
+      // Flyway
+      "org.flywaydb" % "flyway-core" % "11.1.0",
+      // Testing
+      "org.scalatest" %% "scalatest" % "3.2.19" % Test))

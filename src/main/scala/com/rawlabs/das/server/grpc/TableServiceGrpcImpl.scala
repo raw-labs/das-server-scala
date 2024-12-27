@@ -10,17 +10,24 @@
  * licenses/APL.txt.
  */
 
-package com.rawlabs.das.server
-
-import com.rawlabs.protocol.das.{Row, Rows, SortKeys}
-import com.rawlabs.protocol.das.services._
-import com.typesafe.scalalogging.StrictLogging
-import io.grpc.Context
-import io.grpc.stub.StreamObserver
+package com.rawlabs.das.server.grpc
 
 import java.io.Closeable
-import scala.collection.JavaConverters._
+import java.util.Optional
+
 import scala.collection.mutable
+import scala.jdk.CollectionConverters._
+import scala.jdk.OptionConverters._
+
+import com.rawlabs.das.sdk.DASExecuteResult
+import com.rawlabs.das.server.cache.DASChunksCache
+import com.rawlabs.das.server.manager.DASSdkManager
+import com.rawlabs.protocol.das.v1.services._
+import com.rawlabs.protocol.das.v1.tables._
+import com.typesafe.scalalogging.StrictLogging
+
+import io.grpc.Context
+import io.grpc.stub.StreamObserver
 
 /**
  * Implementation of the gRPC service for handling table-related operations.
@@ -28,9 +35,7 @@ import scala.collection.mutable
  * @param provider Provides access to DAS (Data Access Service) instances.
  * @param cache Cache for storing query results.
  */
-class TableServiceGrpcImpl(provider: DASSdkManager, cache: DASResultCache)
-    extends TablesServiceGrpc.TablesServiceImplBase
-    with StrictLogging {
+class TableServiceGrpcImpl(provider: DASSdkManager) extends TablesServiceGrpc.TablesServiceImplBase with StrictLogging {
 
   /**
    * Retrieves table definitions based on the DAS ID provided in the request.
@@ -38,13 +43,12 @@ class TableServiceGrpcImpl(provider: DASSdkManager, cache: DASResultCache)
    * @param request The request containing the DAS ID.
    * @param responseObserver The observer to send responses.
    */
-  override def getDefinitions(
-      request: GetDefinitionsRequest,
-      responseObserver: StreamObserver[GetDefinitionsResponse]
-  ): Unit = {
+  override def getTableDefinitions(
+      request: GetTableDefinitionsRequest,
+      responseObserver: StreamObserver[GetTableDefinitionsResponse]): Unit = {
     logger.debug(s"Fetching table definitions for DAS ID: ${request.getDasId}")
-    val tableDefinitions = provider.getDAS(request.getDasId).tableDefinitions
-    val response = GetDefinitionsResponse.newBuilder().addAllDefinitions(tableDefinitions.asJava).build()
+    val tableDefinitions = provider.getDAS(request.getDasId).getTableDefinitions
+    val response = GetTableDefinitionsResponse.newBuilder().addAllDefinitions(tableDefinitions).build()
     responseObserver.onNext(response)
     responseObserver.onCompleted()
     logger.debug("Table definitions sent successfully.")
@@ -56,14 +60,16 @@ class TableServiceGrpcImpl(provider: DASSdkManager, cache: DASResultCache)
    * @param request The request containing the table ID.
    * @param responseObserver The observer to send responses.
    */
-  override def getRelSize(request: GetRelSizeRequest, responseObserver: StreamObserver[GetRelSizeResponse]): Unit = {
+  override def getTableEstimate(
+      request: GetTableEstimateRequest,
+      responseObserver: StreamObserver[GetTableEstimateResponse]): Unit = {
     logger.debug(s"Fetching table size for Table ID: ${request.getTableId.getName}")
-    provider
-      .getDAS(request.getDasId)
-      .getTable(request.getTableId.getName) match {
+    provider.getDAS(request.getDasId).getTable(request.getTableId.getName).toScala match {
       case Some(table) =>
-        val (rows, bytes) = table.getRelSize(request.getQualsList.asScala, request.getColumnsList.asScala)
-        val response = GetRelSizeResponse.newBuilder().setRows(rows).setBytes(bytes).build()
+        val relSizeResult = table.getTableEstimate(request.getQualsList, request.getColumnsList)
+        val rows = relSizeResult.getExpectedNumberOfRows
+        val bytes = relSizeResult.getAvgRowWidthBytes
+        val response = GetTableEstimateResponse.newBuilder().setRows(rows).setBytes(bytes).build()
         responseObserver.onNext(response)
         responseObserver.onCompleted()
         logger.debug(s"Table size (rows: $rows, bytes: $bytes) sent successfully.")
@@ -79,18 +85,17 @@ class TableServiceGrpcImpl(provider: DASSdkManager, cache: DASResultCache)
    * @param request The request containing the sort keys.
    * @param responseObserver The observer to send responses.
    */
-  override def canSort(request: CanSortRequest, responseObserver: StreamObserver[CanSortResponse]): Unit = {
-    logger.debug(s"Checking if table can be sorted for Table ID: ${request.getTableId.getName}")
-    provider
-      .getDAS(request.getDasId)
-      .getTable(request.getTableId.getName) match {
+  override def getTableSortOrders(
+      request: GetTableSortOrdersRequest,
+      responseObserver: StreamObserver[GetTableSortOrdersResponse]): Unit = {
+    logger.debug(s"Fetching table sort orders for Table ID: ${request.getTableId.getName}")
+    provider.getDAS(request.getDasId).getTable(request.getTableId.getName).toScala match {
       case Some(table) =>
-        val sortKeys = table.canSort(request.getSortKeys.getSortKeysList.asScala)
-        val response =
-          CanSortResponse.newBuilder().setSortKeys(SortKeys.newBuilder().addAllSortKeys(sortKeys.asJava)).build()
+        val sortKeys = table.getTableSortOrders(request.getSortKeysList)
+        val response = GetTableSortOrdersResponse.newBuilder().addAllSortKeys(sortKeys).build()
         responseObserver.onNext(response)
         responseObserver.onCompleted()
-        logger.debug("Sort capability information sent successfully.")
+        logger.debug("Table sort orders sent successfully.")
       case None =>
         logger.error(s"Table ${request.getTableId.getName} not found.")
         responseObserver.onError(new RuntimeException(s"Table ${request.getTableId.getName} not found"))
@@ -103,22 +108,20 @@ class TableServiceGrpcImpl(provider: DASSdkManager, cache: DASResultCache)
    * @param request The request containing table ID.
    * @param responseObserver The observer to send responses.
    */
-  override def getPathKeys(request: GetPathKeysRequest, responseObserver: StreamObserver[GetPathKeysResponse]): Unit = {
-    logger.debug(s"Fetching path keys for Table ID: ${request.getTableId.getName}")
+  override def getTablePathKeys(
+      request: GetTablePathKeysRequest,
+      responseObserver: StreamObserver[GetTablePathKeysResponse]): Unit = {
+    logger.debug(s"Fetching table path keys for Table ID: ${request.getTableId.getName}")
     provider
       .getDAS(request.getDasId)
-      .getTable(request.getTableId.getName) match {
+      .getTable(request.getTableId.getName)
+      .toScala match {
       case Some(table) =>
-        val pathKeys = table.getPathKeys
-        val response = GetPathKeysResponse
-          .newBuilder()
-          .addAllPathKeys(pathKeys.map {
-            case (keys, rows) => PathKey.newBuilder().addAllKeyColumns(keys.asJava).setExpectedRows(rows).build()
-          }.asJava)
-          .build()
+        val pathKeys = table.getTablePathKeys
+        val response = GetTablePathKeysResponse.newBuilder().addAllPathKeys(pathKeys).build()
         responseObserver.onNext(response)
         responseObserver.onCompleted()
-        logger.debug("Path keys information sent successfully.")
+        logger.debug("Table path keys sent successfully.")
       case None =>
         logger.error(s"Table ${request.getTableId.getName} not found.")
         responseObserver.onError(new RuntimeException(s"Table ${request.getTableId.getName} not found"))
@@ -131,20 +134,18 @@ class TableServiceGrpcImpl(provider: DASSdkManager, cache: DASResultCache)
    * @param request The request containing query details.
    * @param responseObserver The observer to send responses.
    */
-  override def explain(request: ExplainRequest, responseObserver: StreamObserver[ExplainResponse]): Unit = {
+  override def explainTable(
+      request: ExplainTableRequest,
+      responseObserver: StreamObserver[ExplainTableResponse]): Unit = {
     logger.debug(s"Explaining query for Table ID: ${request.getTableId.getName}")
-    provider
-      .getDAS(request.getDasId)
-      .getTable(request.getTableId.getName) match {
+    provider.getDAS(request.getDasId).getTable(request.getTableId.getName).toScala match {
       case Some(table) =>
-        val explanation = table.explain(
-          request.getQualsList.asScala,
-          request.getColumnsList.asScala,
-          if (request.hasSortKeys) Some(request.getSortKeys.getSortKeysList.asScala) else None,
-          if (request.hasLimit) Some(request.getLimit) else None,
-          request.getVerbose
-        )
-        val response = ExplainResponse.newBuilder().addAllStmts(explanation.asJava).build()
+        val explanation =
+          table.explain(
+            request.getQuery.getQualsList,
+            request.getQuery.getColumnsList,
+            request.getQuery.getSortKeysList)
+        val response = ExplainTableResponse.newBuilder().addAllStmts(explanation).build()
         responseObserver.onNext(response)
         responseObserver.onCompleted()
         logger.debug("Query explanation sent successfully.")
@@ -160,46 +161,37 @@ class TableServiceGrpcImpl(provider: DASSdkManager, cache: DASResultCache)
    * @param request The request containing query details.
    * @param responseObserver The observer to send responses.
    */
-  override def execute(request: ExecuteRequest, responseObserver: StreamObserver[Rows]): Unit = {
+  override def executeTable(request: ExecuteTableRequest, responseObserver: StreamObserver[Rows]): Unit = {
     logger.debug(s"Executing query for Table ID: ${request.getTableId.getName}")
-    provider
-      .getDAS(request.getDasId)
-      .getTable(request.getTableId.getName) match {
+    provider.getDAS(request.getDasId).getTable(request.getTableId.getName).toScala match {
       case Some(table) =>
         def task(): Iterator[Rows] with Closeable = {
           logger.debug(s"Executing query for Table ID: ${request.getTableId.getName}, Plan ID: ${request.getPlanId}")
           val result = table.execute(
-            request.getQualsList.asScala,
-            request.getColumnsList.asScala,
-            if (request.hasSortKeys) Some(request.getSortKeys.getSortKeysList.asScala) else None,
-            if (request.hasLimit) Some(request.getLimit) else None
-          )
-
+            request.getQuery.getQualsList,
+            request.getQuery.getColumnsList,
+            request.getQuery.getSortKeysList)
           val MAX_CHUNK_SIZE = 100
           logger.debug(
-            s"Creating iterator (chunk size $MAX_CHUNK_SIZE rows) for query execution for Table ID: ${request.getTableId.getName}, Plan ID: ${request.getPlanId}"
-          )
+            s"Creating iterator (chunk size $MAX_CHUNK_SIZE rows) for query execution for Table ID: ${request.getTableId.getName}, Plan ID: ${request.getPlanId}")
           // Wrap the result processing logic in the iterator
           new ChunksIterator(request, result, MAX_CHUNK_SIZE)
         }
 
         // Wrap the result processing logic in the iterator
-        val it = {
-          DASChunksCache.get(request) match {
-            case Some(cachedChunks) =>
-              logger.debug(s"Using cached chunks for Table ID: ${request.getTableId.getName}")
-              val cachedChunksIterator = cachedChunks.iterator
-              new Iterator[Rows] with Closeable {
-                override def hasNext: Boolean = cachedChunksIterator.hasNext
-
-                override def next(): Rows = cachedChunksIterator.next()
-
-                override def close(): Unit = {}
-              }
-            case None =>
-              logger.debug(s"Cache miss for Table ID: ${request.getTableId.getName}")
-              task()
-          }
+        val it = DASChunksCache.get(request) match {
+          case Some(cachedChunks) =>
+            logger.debug(s"Using cached chunks for Table ID: ${request.getTableId.getName}")
+            val cachedChunksIterator = cachedChunks.iterator
+            new Iterator[Rows] with Closeable {
+              override def hasNext: Boolean = cachedChunksIterator.hasNext
+              override def next(): Rows = cachedChunksIterator.next()
+              override def close(): Unit = {}
+            }
+          case None =>
+            logger
+              .debug(s"Cache miss for Table ID: ${request.getTableId.getName}")
+            task()
         }
 
         val context = Context.current()
@@ -217,9 +209,7 @@ class TableServiceGrpcImpl(provider: DASSdkManager, cache: DASResultCache)
           case ex: Exception =>
             logger.error("Error occurred during query execution.", ex)
             responseObserver.onError(ex)
-        } finally {
-          it.close()
-        }
+        } finally it.close()
       case None =>
         logger.error(s"Table ${request.getTableId.getName} not found.")
         responseObserver.onError(new RuntimeException(s"Table ${request.getTableId.getName} not found"))
@@ -232,16 +222,13 @@ class TableServiceGrpcImpl(provider: DASSdkManager, cache: DASResultCache)
    * @param request The request containing table ID.
    * @param responseObserver The observer to send responses.
    */
-  override def uniqueColumn(
-      request: UniqueColumnRequest,
-      responseObserver: StreamObserver[UniqueColumnResponse]
-  ): Unit = {
+  override def getTableUniqueColumn(
+      request: GetTableUniqueColumnRequest,
+      responseObserver: StreamObserver[GetTableUniqueColumnResponse]): Unit = {
     logger.debug(s"Fetching unique columns for Table ID: ${request.getTableId.getName}")
-    provider
-      .getDAS(request.getDasId)
-      .getTable(request.getTableId.getName) match {
+    provider.getDAS(request.getDasId).getTable(request.getTableId.getName).toScala match {
       case Some(table) =>
-        val response = UniqueColumnResponse.newBuilder().setColumn(table.uniqueColumn).build()
+        val response = GetTableUniqueColumnResponse.newBuilder().setColumn(table.uniqueColumn).build()
         responseObserver.onNext(response)
         responseObserver.onCompleted()
         logger.debug("Unique column information sent successfully.")
@@ -257,17 +244,14 @@ class TableServiceGrpcImpl(provider: DASSdkManager, cache: DASResultCache)
    * @param request The request containing table ID.
    * @param responseObserver The observer to send responses.
    */
-  override def modifyBatchSize(
-      request: ModifyBatchSizeRequest,
-      responseObserver: StreamObserver[ModifyBatchSizeResponse]
-  ): Unit = {
+  override def getBulkInsertTableSize(
+      request: GetBulkInsertTableSizeRequest,
+      responseObserver: StreamObserver[GetBulkInsertTableSizeResponse]): Unit = {
     logger.debug(s"Modifying batch size for Table ID: ${request.getTableId.getName}")
-    provider
-      .getDAS(request.getDasId)
-      .getTable(request.getTableId.getName) match {
+    provider.getDAS(request.getDasId).getTable(request.getTableId.getName).toScala match {
       case Some(table) =>
-        val batchSize = table.modifyBatchSize
-        val response = ModifyBatchSizeResponse.newBuilder().setSize(batchSize).build()
+        val batchSize = table.bulkInsertBatchSize()
+        val response = GetBulkInsertTableSizeResponse.newBuilder().setSize(batchSize).build()
         responseObserver.onNext(response)
         responseObserver.onCompleted()
         logger.debug("Batch size modification completed successfully.")
@@ -283,14 +267,12 @@ class TableServiceGrpcImpl(provider: DASSdkManager, cache: DASResultCache)
    * @param request The request containing the row to be inserted.
    * @param responseObserver The observer to send responses.
    */
-  override def insert(request: InsertRequest, responseObserver: StreamObserver[InsertResponse]): Unit = {
+  override def insertTable(request: InsertTableRequest, responseObserver: StreamObserver[InsertTableResponse]): Unit = {
     logger.debug(s"Inserting row into Table ID: ${request.getTableId.getName}")
-    provider
-      .getDAS(request.getDasId)
-      .getTable(request.getTableId.getName) match {
+    provider.getDAS(request.getDasId).getTable(request.getTableId.getName).toScala match {
       case Some(table) =>
-        val row = table.insert(request.getValues)
-        responseObserver.onNext(InsertResponse.newBuilder().setRow(row).build())
+        val row = table.insert(request.getRow)
+        responseObserver.onNext(InsertTableResponse.newBuilder().setRow(row).build())
         responseObserver.onCompleted()
         logger.debug("Row inserted successfully.")
       case None =>
@@ -305,14 +287,14 @@ class TableServiceGrpcImpl(provider: DASSdkManager, cache: DASResultCache)
    * @param request The request containing the rows to be inserted.
    * @param responseObserver The observer to send responses.
    */
-  override def bulkInsert(request: BulkInsertRequest, responseObserver: StreamObserver[BulkInsertResponse]): Unit = {
+  override def bulkInsertTable(
+      request: BulkInsertTableRequest,
+      responseObserver: StreamObserver[BulkInsertTableResponse]): Unit = {
     logger.debug(s"Performing bulk insert into Table ID: ${request.getTableId.getName}")
-    provider
-      .getDAS(request.getDasId)
-      .getTable(request.getTableId.getName) match {
+    provider.getDAS(request.getDasId).getTable(request.getTableId.getName).toScala match {
       case Some(table) =>
-        val rows = table.bulkInsert(request.getValuesList.asScala)
-        responseObserver.onNext(BulkInsertResponse.newBuilder().addAllRows(rows.asJava).build())
+        val rows = table.bulkInsert(request.getRowsList)
+        responseObserver.onNext(BulkInsertTableResponse.newBuilder().addAllRows(rows).build())
         responseObserver.onCompleted()
         logger.debug("Bulk insert completed successfully.")
       case None =>
@@ -327,14 +309,12 @@ class TableServiceGrpcImpl(provider: DASSdkManager, cache: DASResultCache)
    * @param request The request containing the unique columns and new values.
    * @param responseObserver The observer to send responses.
    */
-  override def update(request: UpdateRequest, responseObserver: StreamObserver[UpdateResponse]): Unit = {
+  override def updateTable(request: UpdateTableRequest, responseObserver: StreamObserver[UpdateTableResponse]): Unit = {
     logger.debug(s"Updating rows in Table ID: ${request.getTableId.getName}")
-    provider
-      .getDAS(request.getDasId)
-      .getTable(request.getTableId.getName) match {
+    provider.getDAS(request.getDasId).getTable(request.getTableId.getName).toScala match {
       case Some(table) =>
-        val newRow = table.update(request.getRowId, request.getNewValues)
-        responseObserver.onNext(UpdateResponse.newBuilder().setRow(newRow).build())
+        val newRow = table.update(request.getRowId, request.getNewRow)
+        responseObserver.onNext(UpdateTableResponse.newBuilder().setRow(newRow).build())
         responseObserver.onCompleted()
         logger.debug("Rows updated successfully.")
       case None =>
@@ -349,14 +329,12 @@ class TableServiceGrpcImpl(provider: DASSdkManager, cache: DASResultCache)
    * @param request The request containing the unique columns.
    * @param responseObserver The observer to send responses.
    */
-  override def delete(request: DeleteRequest, responseObserver: StreamObserver[DeleteResponse]): Unit = {
+  override def deleteTable(request: DeleteTableRequest, responseObserver: StreamObserver[DeleteTableResponse]): Unit = {
     logger.debug(s"Deleting rows from Table ID: ${request.getTableId.getName}")
-    provider
-      .getDAS(request.getDasId)
-      .getTable(request.getTableId.getName) match {
+    provider.getDAS(request.getDasId).getTable(request.getTableId.getName).toScala match {
       case Some(table) =>
         table.delete(request.getRowId)
-        responseObserver.onNext(DeleteResponse.getDefaultInstance)
+        responseObserver.onNext(DeleteTableResponse.getDefaultInstance)
         responseObserver.onCompleted()
         logger.debug("Rows deleted successfully.")
       case None =>
@@ -374,11 +352,8 @@ class TableServiceGrpcImpl(provider: DASSdkManager, cache: DASResultCache)
  * @param resultIterator The iterator of query results.
  * @param maxChunkSize The maximum size of each chunk.
  */
-class ChunksIterator(
-    request: ExecuteRequest,
-    resultIterator: Iterator[Row] with Closeable,
-    maxChunkSize: Int
-) extends Iterator[Rows]
+class ChunksIterator(request: ExecuteTableRequest, resultIterator: DASExecuteResult, maxChunkSize: Int)
+    extends Iterator[Rows]
     with Closeable
     with StrictLogging {
 
@@ -451,9 +426,8 @@ class ChunksIterator(
   private def getNextChunk(): Rows = {
     currentChunk.clear()
     logger.debug("Cleared currentChunk")
-    while (resultIterator.hasNext && currentChunk.size < maxChunkSize) {
+    while (resultIterator.hasNext && currentChunk.size < maxChunkSize)
       currentChunk += resultIterator.next()
-    }
     val rows = Rows.newBuilder().addAllRows(currentChunk.asJava).build()
     logger.debug(s"Built next chunk with ${currentChunk.size} rows")
     rows

@@ -10,31 +10,29 @@
  * licenses/APL.txt.
  */
 
-package com.rawlabs.das.server
-
-import com.google.common.cache.{Cache, CacheBuilder}
-import com.rawlabs.protocol.das.Rows
-import com.rawlabs.protocol.das.services.ExecuteRequest
-import com.typesafe.scalalogging.StrictLogging
+package com.rawlabs.das.server.cache
 
 import scala.collection.mutable
+
+import com.google.common.cache.Cache
+import com.google.common.cache.CacheBuilder
+import com.rawlabs.protocol.das.v1.services.ExecuteTableRequest
+import com.rawlabs.protocol.das.v1.tables.Rows
+import com.typesafe.scalalogging.StrictLogging
 
 object DASChunksCache extends StrictLogging {
   // Maximum number of entries cache
   private val N = 1000
 
   // Initialize the cache with a LRU eviction policy
-  private val cache: Cache[String, mutable.Buffer[Rows]] = CacheBuilder
-    .newBuilder()
-    .maximumSize(N)
-    .build()
+  private val cache: Cache[String, mutable.Buffer[Rows]] = CacheBuilder.newBuilder().maximumSize(N).build()
 
-  def put(request: ExecuteRequest, all: mutable.Buffer[Rows]): Unit = {
+  def put(request: ExecuteTableRequest, all: mutable.Buffer[Rows]): Unit = {
     logger.debug(s"Putting request in cache: $request")
     cache.put(request.toString, all)
   }
 
-  def get(request: ExecuteRequest): Option[mutable.Buffer[Rows]] = {
+  def get(request: ExecuteTableRequest): Option[mutable.Buffer[Rows]] = {
     logger.debug(s"Getting request from cache: $request")
     val r = Option(cache.getIfPresent(request.toString))
     logger.debug(s"Cache hit: ${r.isDefined}")

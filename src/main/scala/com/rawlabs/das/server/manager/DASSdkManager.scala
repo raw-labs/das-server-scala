@@ -10,17 +10,24 @@
  * licenses/APL.txt.
  */
 
-package com.rawlabs.das.server
-
-import com.google.common.cache.{CacheBuilder, CacheLoader, RemovalNotification}
-import com.rawlabs.das.sdk.{DASSdk, DASSdkBuilder}
-import com.rawlabs.protocol.das.DASId
-import com.rawlabs.utils.core.RawSettings
-import com.typesafe.scalalogging.StrictLogging
+package com.rawlabs.das.server.manager
 
 import java.util.ServiceLoader
-import scala.collection.JavaConverters._
+
 import scala.collection.mutable
+import scala.jdk.CollectionConverters._
+import scala.jdk.OptionConverters._
+import scala.util.control.NonFatal
+
+import com.google.common.cache.CacheBuilder
+import com.google.common.cache.CacheLoader
+import com.google.common.cache.RemovalNotification
+import com.rawlabs.das.sdk.DASSdk
+import com.rawlabs.das.sdk.DASSdkBuilder
+import com.rawlabs.das.sdk.DASSettings
+import com.rawlabs.protocol.das.v1.common.DASId
+import com.rawlabs.protocol.das.v1.services.RegisterResponse
+import com.typesafe.scalalogging.StrictLogging
 
 object DASSdkManager {
   private val BUILTIN_DAS = "raw.das.server.builtin"
@@ -36,32 +43,32 @@ private case class DASConfig(dasType: String, options: Map[String, String])
  *
  * @param settings Configuration settings used by the manager.
  */
-class DASSdkManager(implicit settings: RawSettings) extends StrictLogging {
+class DASSdkManager(implicit settings: DASSettings) extends StrictLogging {
 
   import DASSdkManager._
 
   private val dasSdkLoader = ServiceLoader.load(classOf[DASSdkBuilder]).asScala
+  dasSdkLoader.foreach(builder => logger.debug(s"Found DAS SDK builder: ${builder.getDasType}"))
 
   private val dasSdkConfigCache = mutable.HashMap[DASId, DASConfig]()
   private val dasSdkConfigCacheLock = new Object
   private val dasSdkCache = CacheBuilder
     .newBuilder()
-    .removalListener((notification: RemovalNotification[DASConfig, DASSdk]) => {
+    .removalListener { (notification: RemovalNotification[DASConfig, DASSdk]) =>
       logger.debug(s"Removing DAS SDK for type: ${notification.getKey.dasType}")
       // That's where a DAS instance should be closed (e.g. close connections, etc.)
-    })
+    }
     .build(new CacheLoader[DASConfig, DASSdk] {
       override def load(dasConfig: DASConfig): DASSdk = {
         logger.debug(s"Loading DAS SDK for type: ${dasConfig.dasType}")
         logger.trace(s"DAS Options: ${dasConfig.options}")
         val dasType = dasConfig.dasType
         dasSdkLoader
-          .find(_.dasType == dasType)
+          .find(_.getDasType == dasType)
           .getOrElse {
-            logger.error(s"DAS type '$dasType' not supported.")
             throw new IllegalArgumentException(s"DAS type '$dasType' not supported")
           }
-          .build(dasConfig.options)
+          .build(dasConfig.options.asJava, settings)
       }
     })
 
@@ -71,30 +78,39 @@ class DASSdkManager(implicit settings: RawSettings) extends StrictLogging {
   /**
    * Registers a new DAS instance with the specified type and options.
    *
-   * @param dasType    The type of the DAS to register.
-   * @param options    A map of options for configuring the DAS.
+   * @param dasType The type of the DAS to register.
+   * @param options A map of options for configuring the DAS.
    * @param maybeDasId An optional DAS ID, if not provided a new one will be generated.
    * @return The registered DAS ID.
    */
-  def registerDAS(dasType: String, options: Map[String, String], maybeDasId: Option[DASId] = None): DASId = {
+  def registerDAS(dasType: String, options: Map[String, String], maybeDasId: Option[DASId] = None): RegisterResponse = {
     // Start from the provided DAS ID, or create a new one.
     val dasId = maybeDasId.getOrElse(DASId.newBuilder().setId(java.util.UUID.randomUUID().toString).build())
     // Then make sure that the DAS is not already registered with a different config.
     val config = DASConfig(dasType, stripOptions(options))
     dasSdkConfigCacheLock.synchronized {
       dasSdkConfigCache.get(dasId) match {
-        case Some(registeredConfig) => if (registeredConfig != config) {
-            logger.error(
-              s"DAS with ID $dasId is already registered with a different configuration"
-            )
+        case Some(registeredConfig) =>
+          if (registeredConfig != config) {
+            logger.error(s"DAS with ID $dasId is already registered with a different configuration")
             throw new IllegalArgumentException(s"DAS with id $dasId already registered")
           }
         case None => dasSdkConfigCache.put(dasId, config)
       }
     }
     // Everything is fine at dasId/config level. Create (or use previously cached instance) an SDK with the config.
-    dasSdkCache.get(config) // If the config didn't exist, that blocks until the new DAS is loaded
-    dasId
+    try {
+      dasSdkCache.get(config) // If the config didn't exist, that blocks until the new DAS is loaded
+      RegisterResponse.newBuilder().setId(dasId).build()
+    } catch {
+      case NonFatal(e) =>
+        logger.error(s"Failed to create DAS for type: $dasType with id: $dasId", e)
+        // Remove the broken config since we failed to build the DAS
+        dasSdkConfigCacheLock.synchronized {
+          dasSdkConfigCache.remove(dasId)
+        }
+        RegisterResponse.newBuilder().setError(e.getMessage).build()
+    }
   }
 
   /**
@@ -109,13 +125,10 @@ class DASSdkManager(implicit settings: RawSettings) extends StrictLogging {
           logger.debug(s"Unregistering DAS with ID: $dasId")
           dasSdkConfigCache.remove(dasId)
           logger.debug(s"DAS unregistered successfully with ID: $dasId")
-          if (!dasSdkConfigCache.values.exists(_ == config)) {
+          if (!dasSdkConfigCache.values.exists(_ == config))
             // It was the last DAS with this config, so invalidate the cache
             dasSdkCache.invalidate(config)
-          }
-        case None => {
-          logger.warn(s"Tried to unregister DAS with ID: $dasId, but it was not found.")
-        }
+        case None => logger.warn(s"Tried to unregister DAS with ID: $dasId, but it was not found.")
       }
     }
   }
@@ -131,8 +144,8 @@ class DASSdkManager(implicit settings: RawSettings) extends StrictLogging {
     val config = dasSdkConfigCacheLock.synchronized {
       dasSdkConfigCache.getOrElseUpdate(
         dasId,
-        getDASFromRemote(dasId).getOrElse(throw new IllegalArgumentException(s"DAS not found: $dasId"))
-      )
+        getDASFromRemote(dasId)
+          .getOrElse(throw new IllegalArgumentException(s"DAS not found: $dasId")))
     }
     // Get the matching DAS from the cache
     dasSdkCache.get(DASConfig(config.dasType, config.options))
@@ -160,23 +173,23 @@ class DASSdkManager(implicit settings: RawSettings) extends StrictLogging {
   private def readDASFromConfig(): Map[String, (String, Map[String, String])] = {
     val ids = mutable.Map[String, (String, Map[String, String])]()
     dasSdkConfigCacheLock.synchronized {
-      try {
-        settings.config.getConfig(BUILTIN_DAS).root().entrySet().asScala.foreach { entry =>
-          val id = entry.getKey
-          val dasType = settings.config.getString(s"$BUILTIN_DAS.$id.type")
-          val options = settings.config
-            .getConfig(s"$BUILTIN_DAS.$id.options")
-            .entrySet()
-            .asScala
-            .map(entry => entry.getKey -> entry.getValue.unwrapped().toString)
-            .toMap
-          ids.put(id, (dasType, options))
-          logger.debug(s"Read DAS configuration for ID: $id, Type: $dasType")
-        }
-      } catch {
-        case _: com.typesafe.config.ConfigException.Missing =>
-          // Ignore missing config
-          logger.warn("No DAS configuration found in the local config file")
+      settings.getConfigSubTree(BUILTIN_DAS).toScala match {
+        case None =>
+          logger
+            .warn("No DAS configuration found in the local config file")
+        case configSubTree =>
+          configSubTree.get.asScala.foreach { entry =>
+            val id = entry.getKey
+            val dasType = settings.getString(s"$BUILTIN_DAS.$id.type")
+            val options = settings
+              .getConfigSubTree(s"$BUILTIN_DAS.$id.options")
+              .get
+              .asScala
+              .map(entry => entry.getKey -> entry.getValue.unwrapped().toString)
+              .toMap
+            ids.put(id, (dasType, options))
+            logger.debug(s"Read DAS configuration for ID: $id, Type: $dasType")
+          }
       }
     }
     ids.toMap
@@ -187,11 +200,10 @@ class DASSdkManager(implicit settings: RawSettings) extends StrictLogging {
    */
   private def registerDASFromConfig(): Unit = {
     logger.debug("Registering DAS from local config file.")
-    readDASFromConfig().foreach {
-      case (id, (dasType, options)) =>
-        val dasId = DASId.newBuilder().setId(id).build()
-        registerDAS(dasType, options, Some(dasId))
-        logger.debug(s"Registered DAS from config with ID: $id")
+    readDASFromConfig().foreach { case (id, (dasType, options)) =>
+      val dasId = DASId.newBuilder().setId(id).build()
+      registerDAS(dasType, options, Some(dasId))
+      logger.debug(s"Registered DAS from config with ID: $id")
     }
   }
 
@@ -201,17 +213,14 @@ class DASSdkManager(implicit settings: RawSettings) extends StrictLogging {
    * @param dasId The DAS ID to retrieve.
    * @return The DAS instance.
    */
-  private def getDASFromRemote(dasId: DASId): Option[DASConfig] = {
-    None
-  }
+  private def getDASFromRemote(dasId: DASId): Option[DASConfig] = None
 
   /**
-   * Strips the DAS-specific options (das_*) from the provided options map. They aren't needed
-   * for the SDK instance creation and shouldn't be used as part of the cache key.
+   * Strips the DAS-specific options (das_*) from the provided options map. They aren't needed for the SDK instance
+   * creation and shouldn't be used as part of the cache key.
    * @param options The options sent by the client.
    * @return The same options with the DAS-specific entries removed.
    */
-  private def stripOptions(options: Map[String, String]): Map[String, String] = {
-    options.filterKeys(!_.startsWith("das_"))
-  }
+  private def stripOptions(options: Map[String, String]): Map[String, String] =
+    options.view.filterKeys(!_.startsWith("das_")).toMap
 }
