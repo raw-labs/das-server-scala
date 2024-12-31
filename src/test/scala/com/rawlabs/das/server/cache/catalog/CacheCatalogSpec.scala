@@ -45,14 +45,23 @@ class CacheCatalogSpec extends AnyFunSuite with Matchers with BeforeAndAfterAll 
 
   test("create and retrieve a new cache entry") {
     val cacheId = UUID.randomUUID()
-    catalog.createCache(cacheId, "dasId-123", """{"foo":"bar"}""")
+    val definition = CacheDefinition("tableId-123", Seq.empty, Seq.empty, Seq.empty)
+    catalog.createCache(cacheId, "dasId-123", definition)
+
+    val all = catalog.listAll()
+    all should have size 1
+    all.head.cacheId shouldBe cacheId
+
+    val count = catalog.countAll()
+    count shouldBe 1
 
     val fetched = catalog.listByDasId("dasId-123")
 
     fetched should have size 1
     fetched.head.cacheId shouldBe cacheId
-    fetched.head.definition shouldBe """{"foo":"bar"}"""
+    fetched.head.definition shouldBe definition
     fetched.head.state shouldBe CacheState.InProgress
+    fetched.head.activeReaders shouldBe 0
     fetched.head.numberOfTotalReads shouldBe 0
 
     catalog.deleteCache(cacheId)
@@ -60,10 +69,11 @@ class CacheCatalogSpec extends AnyFunSuite with Matchers with BeforeAndAfterAll 
 
   test("add reader updates lastAccessDate and increments read count") {
     val cacheId = UUID.randomUUID()
-    catalog.createCache(cacheId, "dasId-xyz", """{"baz":"qux"}""")
+    catalog.createCache(cacheId, "dasId-xyz", CacheDefinition("tableId-xyz", Seq.empty, Seq.empty, Seq.empty))
 
     // Initially zero readers
     val initialEntry = catalog.listByDasId("dasId-xyz").head
+    initialEntry.activeReaders shouldBe 0
     initialEntry.numberOfTotalReads shouldBe 0
     initialEntry.lastAccessDate shouldBe None
 
@@ -71,6 +81,7 @@ class CacheCatalogSpec extends AnyFunSuite with Matchers with BeforeAndAfterAll 
     catalog.addReader(cacheId)
 
     val updatedEntry = catalog.listByDasId("dasId-xyz").head
+    updatedEntry.activeReaders shouldBe 1
     updatedEntry.numberOfTotalReads shouldBe 1
     updatedEntry.lastAccessDate should not be empty
 
@@ -79,26 +90,31 @@ class CacheCatalogSpec extends AnyFunSuite with Matchers with BeforeAndAfterAll 
 
   test("remove reader decrements read count") {
     val cacheId = UUID.randomUUID()
-    catalog.createCache(cacheId, "dasId-removeTest", """{"some":"data"}""")
+    catalog.createCache(
+      cacheId,
+      "dasId-removeTest",
+      CacheDefinition("tableId-removeTest", Seq.empty, Seq.empty, Seq.empty))
 
     // Add two readers
     catalog.addReader(cacheId)
     catalog.addReader(cacheId)
 
     val withTwoReaders = catalog.listByDasId("dasId-removeTest").head
+    withTwoReaders.activeReaders shouldBe 2
     withTwoReaders.numberOfTotalReads shouldBe 2
 
     // Remove one
     catalog.removeReader(cacheId)
     val withOneReader = catalog.listByDasId("dasId-removeTest").head
-    withOneReader.numberOfTotalReads shouldBe 1
+    withOneReader.activeReaders shouldBe 1
+    withOneReader.numberOfTotalReads shouldBe 2
 
     catalog.deleteCache(cacheId)
   }
 
   test("set cache as complete") {
     val cacheId = UUID.randomUUID()
-    catalog.createCache(cacheId, "dasId-complete", """{"some":"payload"}""")
+    catalog.createCache(cacheId, "dasId-complete", CacheDefinition("tableId-complete", Seq.empty, Seq.empty, Seq.empty))
 
     // Mark as complete with size 1234
     catalog.setCacheAsComplete(cacheId, 1234L)
@@ -112,7 +128,7 @@ class CacheCatalogSpec extends AnyFunSuite with Matchers with BeforeAndAfterAll 
 
   test("set cache as error") {
     val cacheId = UUID.randomUUID()
-    catalog.createCache(cacheId, "dasId-error", """{"some":"data"}""")
+    catalog.createCache(cacheId, "dasId-error", CacheDefinition("tableId-error", Seq.empty, Seq.empty, Seq.empty))
 
     // Mark as error
     catalog.setCacheAsError(cacheId, "Something went wrong")
@@ -129,16 +145,19 @@ class CacheCatalogSpec extends AnyFunSuite with Matchers with BeforeAndAfterAll 
     val errorCacheId = UUID.randomUUID()
 
     // Insert a "complete" cache
-    catalog.createCache(completeCacheId, "dasId-bad1", "{}")
+    catalog.createCache(completeCacheId, "dasId-bad1", CacheDefinition("tableId-bad1", Seq.empty, Seq.empty, Seq.empty))
     catalog.setCacheAsComplete(completeCacheId, 500L)
 
     // Insert an "error" cache
-    catalog.createCache(errorCacheId, "dasId-bad2", "{}")
+    catalog.createCache(errorCacheId, "dasId-bad2", CacheDefinition("tableId-bad2", Seq.empty, Seq.empty, Seq.empty))
     catalog.setCacheAsError(errorCacheId, "Test error")
 
     // Insert an "in_progress" cache (not complete)
     val inProgressCacheId = UUID.randomUUID()
-    catalog.createCache(inProgressCacheId, "dasId-bad3", "{}")
+    catalog.createCache(
+      inProgressCacheId,
+      "dasId-bad3",
+      CacheDefinition("tableId-bad3", Seq.empty, Seq.empty, Seq.empty))
 
     // Now list all bad caches
     val badCaches = catalog.listBadCaches()
@@ -157,11 +176,11 @@ class CacheCatalogSpec extends AnyFunSuite with Matchers with BeforeAndAfterAll 
   test("find oldest cache to delete (NULL lastAccessDate is oldest)") {
     // Create one cache with no lastAccessDate
     val oldCacheId = UUID.randomUUID()
-    catalog.createCache(oldCacheId, "dasId-old", """{"old":"cache"}""")
+    catalog.createCache(oldCacheId, "dasId-old", CacheDefinition("tableId-old", Seq.empty, Seq.empty, Seq.empty))
 
     // Add a new one with lastAccessDate (simulate a read)
     val newCacheId = UUID.randomUUID()
-    catalog.createCache(newCacheId, "dasId-new", """{"new":"cache"}""")
+    catalog.createCache(newCacheId, "dasId-new", CacheDefinition("tableId-new", Seq.empty, Seq.empty, Seq.empty))
     catalog.addReader(newCacheId) // sets lastAccessDate
 
     // The oldest should be oldCacheId, because its lastAccessDate is still NULL
@@ -174,7 +193,7 @@ class CacheCatalogSpec extends AnyFunSuite with Matchers with BeforeAndAfterAll 
 
   test("delete a cache entry") {
     val cacheId = UUID.randomUUID()
-    catalog.createCache(cacheId, "dasId-delete", "{}")
+    catalog.createCache(cacheId, "dasId-delete", CacheDefinition("tableId-delete", Seq.empty, Seq.empty, Seq.empty))
 
     val beforeDelete = catalog.listByDasId("dasId-delete")
     beforeDelete should have size 1
@@ -187,4 +206,23 @@ class CacheCatalogSpec extends AnyFunSuite with Matchers with BeforeAndAfterAll 
 
     catalog.deleteCache(cacheId)
   }
+
+  test("resetAllActiveReaders sets all activeReaders to 0") {
+    val cacheId = UUID.randomUUID()
+    catalog.createCache(cacheId, "dasId-reset", CacheDefinition("tableId-reset", Seq.empty, Seq.empty, Seq.empty))
+    catalog.addReader(cacheId)
+    catalog.addReader(cacheId)
+    catalog.addReader(cacheId)
+
+    val beforeReset = catalog.listByDasId("dasId-reset").head
+    beforeReset.activeReaders shouldBe 3
+
+    catalog.resetAllActiveReaders()
+
+    val afterReset = catalog.listByDasId("dasId-reset").head
+    afterReset.activeReaders shouldBe 0
+
+    catalog.deleteCache(cacheId)
+  }
+
 }

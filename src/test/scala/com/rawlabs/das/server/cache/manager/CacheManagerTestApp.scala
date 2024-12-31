@@ -12,20 +12,23 @@
 
 package com.rawlabs.das.server.cache.manager
 
+import java.io.File
+
+import scala.concurrent.duration._
+import scala.concurrent.{ExecutionContext, Future}
+import scala.util.{Failure, Success}
+
+import com.rawlabs.das.server.cache.catalog._
+import com.rawlabs.das.server.cache.manager.CacheManager._
+import com.rawlabs.das.server.cache.queue._
+import com.rawlabs.protocol.das.v1.query.Qual
+
 import akka.actor.typed._
 import akka.actor.typed.scaladsl.AskPattern._
 import akka.actor.typed.scaladsl.Behaviors
 import akka.stream.scaladsl.Sink
 import akka.stream.{Materializer, SystemMaterializer}
 import akka.util.Timeout
-import com.rawlabs.das.server.cache.catalog._
-import com.rawlabs.das.server.cache.manager.CacheManager._
-import com.rawlabs.das.server.cache.queue._
-
-import java.io.File
-import scala.concurrent.duration._
-import scala.concurrent.{ExecutionContext, Future}
-import scala.util.{Failure, Success}
 
 object CacheManagerTestApp extends App {
 
@@ -44,12 +47,27 @@ object CacheManagerTestApp extends App {
   val baseDirectory = new File("/tmp/cacheData")
 
   // chooseBestEntry
-  def chooseBest(entries: List[CacheEntry]): Option[CacheEntry] =
-    entries.headOption
+  private def chooseBestEntry(
+      cacheDefinition: CacheDefinition,
+      possible: Seq[CacheEntry]): Option[(CacheEntry, Seq[Qual])] = {
+    val best = possible.headOption
+    best.map((_, Seq.empty))
+  }
+
+  // satisfiesAllQuals
+  private def satisfiesAllQuals(row: String, quals: Seq[Qual]): Boolean = false
 
   // Spawn the manager actor
   val managerRef: ActorRef[CacheManager.Command[String]] = system.systemActorOf(
-    CacheManager[String](catalog, baseDirectory, maxEntries = 10, chooseBest),
+    CacheManager[String](
+      catalog,
+      baseDirectory,
+      maxEntries = 10,
+      batchSize = 10,
+      gracePeriod = 5.minutes,
+      producerInterval = 500.millis,
+      chooseBestEntry,
+      satisfiesAllQuals),
     "cacheManagerString")
 
   // Define a Task & Codec
@@ -76,7 +94,8 @@ object CacheManagerTestApp extends App {
       WrappedGetIterator(
         GetIterator(
           dasId = "testDas",
-          taskDescription = "myTaskDescription",
+          definition = CacheDefinition("testTable", Seq.empty, Seq.empty, Seq.empty),
+          minCreationDate = None,
           makeTask = taskFactory,
           codec = stringCodec,
           replyTo))

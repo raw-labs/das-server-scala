@@ -82,6 +82,26 @@ class DASMock(options: Map[String, String]) extends DASSdk with StrictLogging {
           .build())
       .setStartupCost(1000)
       .build()
+    val brokenTable = TableDefinition
+      .newBuilder()
+      .setTableId(TableId.newBuilder().setName("broken"))
+      .setDescription("A mock broken table")
+      .addColumns(
+        ColumnDefinition
+          .newBuilder()
+          .setName("column1")
+          .setDescription("The first column - int")
+          .setType(Type.newBuilder().setInt(IntType.newBuilder()).build())
+          .build())
+      .addColumns(
+        ColumnDefinition
+          .newBuilder()
+          .setName("column2")
+          .setDescription("The second column - string")
+          .setType(Type.newBuilder().setString(StringType.newBuilder()).build())
+          .build())
+      .setStartupCost(1000)
+      .build()
     val inMemoryTable = TableDefinition
       .newBuilder()
       .setTableId(TableId.newBuilder().setName("in_memory"))
@@ -336,7 +356,7 @@ class DASMock(options: Map[String, String]) extends DASSdk with StrictLogging {
                   .build())))
       .setStartupCost(1000)
       .build()
-    Seq(bigTable, smallTable, slowTable, inMemoryTable, allTypesTable)
+    Seq(bigTable, smallTable, slowTable, brokenTable, inMemoryTable, allTypesTable)
   }
 
   override def functionDefinitions: Seq[FunctionDefinition] = {
@@ -350,6 +370,7 @@ class DASMock(options: Map[String, String]) extends DASSdk with StrictLogging {
       case "in_memory" => Some(new DASMockInMemoryTable(dasMockStorage))
       case "all_types" => Some(new DASMockAllTypesTable(100))
       case "slow"      => Some(new DASMockTable(10, sleepPerRowMills = 500))
+      case "broken"    => Some(new DASMockTable(10, breakOnRow = 5))
       case _           => None
     }
   }

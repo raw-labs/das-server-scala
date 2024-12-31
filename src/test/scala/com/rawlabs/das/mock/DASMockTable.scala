@@ -23,7 +23,7 @@ import com.rawlabs.protocol.das.v1.types.ValueInt
 import com.rawlabs.protocol.das.v1.types.ValueString
 import com.typesafe.scalalogging.StrictLogging
 
-class DASMockTable(maxRows: Int, sleepPerRowMills: Int = 0) extends DASTable with StrictLogging {
+class DASMockTable(maxRows: Int, sleepPerRowMills: Int = 0, breakOnRow: Int = -1) extends DASTable with StrictLogging {
 
   override def tableEstimate(quals: Seq[Qual], columns: Seq[String]): DASTable.TableEstimate = {
     DASTable.TableEstimate(maxRows, 100)
@@ -61,6 +61,10 @@ class DASMockTable(maxRows: Int, sleepPerRowMills: Int = 0) extends DASTable wit
       override def hasNext: Boolean = currentIndex <= maxRows
 
       override def next(): Row = {
+        if (breakOnRow > 0 && currentIndex == breakOnRow) {
+          throw new RuntimeException(s"Breaking on row $breakOnRow")
+        }
+
         if (sleepPerRowMills > 0)
           Thread.sleep(sleepPerRowMills)
 
@@ -84,6 +88,8 @@ class DASMockTable(maxRows: Int, sleepPerRowMills: Int = 0) extends DASTable wit
               .setData(
                 Value.newBuilder().setString(ValueString.newBuilder().setV(s"row_tmp_$currentIndex").build()).build()))
           .build()
+
+//        logger.debug(s"Returning row: $row")
 
         currentIndex += 1
         row

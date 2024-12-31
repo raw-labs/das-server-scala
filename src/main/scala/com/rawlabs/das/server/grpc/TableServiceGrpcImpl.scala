@@ -16,18 +16,30 @@ import java.io.Closeable
 import java.util.Optional
 
 import scala.collection.mutable
+import scala.concurrent.ExecutionContext
 import scala.jdk.CollectionConverters._
 import scala.jdk.OptionConverters._
+import scala.util.control.NonFatal
+import scala.util.{Failure, Success}
 
 import com.rawlabs.das.sdk.DASExecuteResult
-import com.rawlabs.das.server.cache.DASChunksCache
+import com.rawlabs.das.server.cache.catalog.CacheDefinition
+import com.rawlabs.das.server.cache.iterator.QueryProcessorFlow
+import com.rawlabs.das.server.cache.manager.CacheManager
+import com.rawlabs.das.server.cache.manager.CacheManager.{GetIterator, WrappedGetIterator}
+import com.rawlabs.das.server.cache.queue.{CloseableIterator, DataProducingTask}
 import com.rawlabs.das.server.manager.DASSdkManager
 import com.rawlabs.protocol.das.v1.services._
 import com.rawlabs.protocol.das.v1.tables._
 import com.typesafe.scalalogging.StrictLogging
 
-import io.grpc.Context
+import akka.NotUsed
+import akka.actor.typed.scaladsl.AskPattern.Askable
+import akka.actor.typed.{ActorRef, Scheduler}
+import akka.stream.Materializer
+import akka.stream.scaladsl.{Flow, Source}
 import io.grpc.stub.StreamObserver
+import io.grpc.{Context, Status, StatusRuntimeException}
 
 /**
  * Implementation of the gRPC service for handling table-related operations.
@@ -35,7 +47,15 @@ import io.grpc.stub.StreamObserver
  * @param provider Provides access to DAS (Data Access Service) instances.
  * @param cache Cache for storing query results.
  */
-class TableServiceGrpcImpl(provider: DASSdkManager) extends TablesServiceGrpc.TablesServiceImplBase with StrictLogging {
+class TableServiceGrpcImpl(
+    provider: DASSdkManager,
+    cacheManager: ActorRef[CacheManager.Command[Row]],
+    maxChunkSize: Int = 1000)(
+    implicit val ec: ExecutionContext,
+    implicit val materializer: Materializer,
+    implicit val scheduler: Scheduler)
+    extends TablesServiceGrpc.TablesServiceImplBase
+    with StrictLogging {
 
   /**
    * Retrieves table definitions based on the DAS ID provided in the request.
@@ -75,7 +95,9 @@ class TableServiceGrpcImpl(provider: DASSdkManager) extends TablesServiceGrpc.Ta
         logger.debug(s"Table size (rows: $rows, bytes: $bytes) sent successfully.")
       case None =>
         logger.error(s"Table ${request.getTableId.getName} not found.")
-        responseObserver.onError(new RuntimeException(s"Table ${request.getTableId.getName} not found"))
+        responseObserver.onError(
+          new StatusRuntimeException(
+            Status.NOT_FOUND.withDescription(s"Table ${request.getTableId.getName} not found")))
     }
   }
 
@@ -98,7 +120,9 @@ class TableServiceGrpcImpl(provider: DASSdkManager) extends TablesServiceGrpc.Ta
         logger.debug("Table sort orders sent successfully.")
       case None =>
         logger.error(s"Table ${request.getTableId.getName} not found.")
-        responseObserver.onError(new RuntimeException(s"Table ${request.getTableId.getName} not found"))
+        responseObserver.onError(
+          new StatusRuntimeException(
+            Status.NOT_FOUND.withDescription(s"Table ${request.getTableId.getName} not found")))
     }
   }
 
@@ -124,7 +148,9 @@ class TableServiceGrpcImpl(provider: DASSdkManager) extends TablesServiceGrpc.Ta
         logger.debug("Table path keys sent successfully.")
       case None =>
         logger.error(s"Table ${request.getTableId.getName} not found.")
-        responseObserver.onError(new RuntimeException(s"Table ${request.getTableId.getName} not found"))
+        responseObserver.onError(
+          new StatusRuntimeException(
+            Status.NOT_FOUND.withDescription(s"Table ${request.getTableId.getName} not found")))
     }
   }
 
@@ -151,7 +177,9 @@ class TableServiceGrpcImpl(provider: DASSdkManager) extends TablesServiceGrpc.Ta
         logger.debug("Query explanation sent successfully.")
       case None =>
         logger.error(s"Table ${request.getTableId.getName} not found.")
-        responseObserver.onError(new RuntimeException(s"Table ${request.getTableId.getName} not found"))
+        responseObserver.onError(
+          new StatusRuntimeException(
+            Status.NOT_FOUND.withDescription(s"Table ${request.getTableId.getName} not found")))
     }
   }
 
@@ -163,57 +191,148 @@ class TableServiceGrpcImpl(provider: DASSdkManager) extends TablesServiceGrpc.Ta
    */
   override def executeTable(request: ExecuteTableRequest, responseObserver: StreamObserver[Rows]): Unit = {
     logger.debug(s"Executing query for Table ID: ${request.getTableId.getName}")
-    provider.getDAS(request.getDasId).getTable(request.getTableId.getName).toScala match {
-      case Some(table) =>
-        def task(): Iterator[Rows] with Closeable = {
-          logger.debug(s"Executing query for Table ID: ${request.getTableId.getName}, Plan ID: ${request.getPlanId}")
-          val result = table.execute(
-            request.getQuery.getQualsList,
-            request.getQuery.getColumnsList,
-            request.getQuery.getSortKeysList)
-          val MAX_CHUNK_SIZE = 100
-          logger.debug(
-            s"Creating iterator (chunk size $MAX_CHUNK_SIZE rows) for query execution for Table ID: ${request.getTableId.getName}, Plan ID: ${request.getPlanId}")
-          // Wrap the result processing logic in the iterator
-          new ChunksIterator(request, result, MAX_CHUNK_SIZE)
-        }
 
-        // Wrap the result processing logic in the iterator
-        val it = DASChunksCache.get(request) match {
-          case Some(cachedChunks) =>
-            logger.debug(s"Using cached chunks for Table ID: ${request.getTableId.getName}")
-            val cachedChunksIterator = cachedChunks.iterator
-            new Iterator[Rows] with Closeable {
-              override def hasNext: Boolean = cachedChunksIterator.hasNext
-              override def next(): Rows = cachedChunksIterator.next()
-              override def close(): Unit = {}
-            }
-          case None =>
-            logger
-              .debug(s"Cache miss for Table ID: ${request.getTableId.getName}")
-            task()
-        }
-
-        val context = Context.current()
-        try {
-          it.foreach { rows =>
-            if (context.isCancelled) {
-              logger.warn("Context cancelled during query execution. Closing reader.")
-              return
-            }
-            responseObserver.onNext(rows)
-          }
-          logger.debug("Query execution completed successfully.")
-          responseObserver.onCompleted()
-        } catch {
-          case ex: Exception =>
-            logger.error("Error occurred during query execution.", ex)
-            responseObserver.onError(ex)
-        } finally it.close()
+    // 1) Attempt to get the table from provider
+    val tableOpt = provider.getDAS(request.getDasId).getTable(request.getTableId.getName).toScala
+    tableOpt match {
       case None =>
         logger.error(s"Table ${request.getTableId.getName} not found.")
-        responseObserver.onError(new RuntimeException(s"Table ${request.getTableId.getName} not found"))
+        responseObserver.onError(
+          Status.NOT_FOUND
+            .withDescription(s"Table ${request.getTableId.getName} not found")
+            .asRuntimeException())
+
+      case Some(table) =>
+        val quals = request.getQuery.getQualsList.asScala.toSeq
+        val columns = request.getQuery.getColumnsList.asScala.toSeq
+        val sortKeys = request.getQuery.getSortKeysList.asScala.toSeq
+
+        // Build a data-producing task for the table, if the cache manager needs to create a new cache
+        val makeTask = () =>
+          new DataProducingTask[Row] {
+            override def run(): CloseableIterator[Row] = {
+              // table.execute(...) returns a CloseableIterator[Row], presumably
+              val dasExecuteResult: DASExecuteResult = table.execute(quals.asJava, columns.asJava, sortKeys.asJava)
+
+              // Adapt DASExecuteResult to CloseableIterator
+              new CloseableIterator[Row] {
+                override def hasNext: Boolean = dasExecuteResult.hasNext
+
+                override def next(): Row = dasExecuteResult.next()
+
+                override def close(): Unit = dasExecuteResult.close()
+              }
+            }
+          }
+        // ^ returns a CloseableIterator[Row] presumably, or some adapter
+
+        // 2) Ask the CacheManager for a Source[Row, _]
+        import akka.util.Timeout
+        implicit val timeout: Timeout = Timeout.create(java.time.Duration.ofSeconds(3))
+
+        val futureAck = cacheManager.ask[CacheManager.GetIteratorAck[Row]] { replyTo =>
+          WrappedGetIterator(
+            GetIterator(
+              dasId = request.getDasId.getId,
+              definition = CacheDefinition(
+                tableId = request.getTableId.getName,
+                quals = quals,
+                columns = columns,
+                sortKeys = sortKeys),
+              minCreationDate = None,
+              makeTask = makeTask,
+              codec = new RowCodec,
+              replyTo = replyTo))
+        }
+
+        futureAck.onComplete {
+          case Failure(ex) =>
+            logger.error("CacheManager lookup failed", ex)
+            responseObserver.onError(
+              new StatusRuntimeException(Status.INTERNAL.withDescription("CacheManager lookup failed")))
+
+          case Success(ack) =>
+            // The ack gives us a future Option[Source[Row, _]]
+            ack.sourceFuture.onComplete {
+              case Failure(err) =>
+                logger.error("Failed to subscribe to cached data source", err)
+                responseObserver.onError(
+                  new StatusRuntimeException(
+                    Status.INTERNAL.withDescription(s"Failed to subscribe to cached data source: $err")))
+
+              case Success(None) =>
+                // Means the data source is not available or stopped
+                logger.warn("CacheManager returned None => no data source.")
+                responseObserver.onCompleted()
+
+              case Success(Some(cachedSource)) =>
+                // 3) Build a flow that applies filtering + projection
+                //    (purely streamed row-by-row, no large in-memory collections).
+                //
+                // If you have a QueryProcessor that can produce a Flow:
+                //   val queryFlow = new QueryProcessor().asFlow(quals, columns)
+                //
+                // Or if using QueryProcessorFlow directly:
+                //   val queryFlow = QueryProcessorFlow(quals, columns)
+                //
+                // For illustration:
+                val queryFlow: Flow[Row, Row, NotUsed] =
+                  QueryProcessorFlow(quals, columns)
+
+                // 4) Merge the cached source with the flow
+                val finalSource: Source[Row, NotUsed] =
+                  cachedSource
+                    .via(queryFlow)
+                    .mapMaterializedValue(_ => NotUsed)
+
+                // 5) Chunk the final stream and push to gRPC observer
+                runStreamedResult(finalSource, request, responseObserver)
+            }
+        }
     }
+  }
+
+  /**
+   * Runs the final Source[Row, _] in chunks of size `maxChunkSize`, sending them to gRPC. Cancels if gRPC context is
+   * cancelled.
+   */
+  private def runStreamedResult(
+      source: Source[Row, NotUsed],
+      request: ExecuteTableRequest,
+      responseObserver: StreamObserver[Rows]): Unit = {
+
+    val chunked: Source[Seq[Row], NotUsed] = {
+      if (maxChunkSize > 1) {
+        source.grouped(maxChunkSize)
+      } else {
+        // If maxChunkSize is 1, we don't need to group
+        source.map(row => Seq(row))
+      }
+    }
+
+    val rowBatches = chunked.map { group =>
+      Rows.newBuilder().addAllRows(group.asJava).build()
+    }
+
+    val context = io.grpc.Context.current()
+
+    val doneF = rowBatches.runForeach { rowsProto =>
+      if (context.isCancelled) {
+        logger.warn(s"Context cancelled for planID=${request.getPlanId}, stopping stream.")
+        // We can throw to terminate the stream
+        throw new RuntimeException("gRPC context canceled")
+      }
+      responseObserver.onNext(rowsProto)
+    }(materializer)
+
+    doneF.onComplete {
+      case Success(_) =>
+        logger.debug(s"Streaming completed successfully for planID=${request.getPlanId}.")
+        responseObserver.onCompleted()
+      case Failure(ex) =>
+        logger.error(s"Error during streaming for planID=${request.getPlanId}.", ex)
+        responseObserver.onError(new StatusRuntimeException(Status.INTERNAL.withDescription("Error during streaming")))
+    }(ec)
   }
 
   /**
@@ -234,7 +353,9 @@ class TableServiceGrpcImpl(provider: DASSdkManager) extends TablesServiceGrpc.Ta
         logger.debug("Unique column information sent successfully.")
       case None =>
         logger.error(s"Table ${request.getTableId.getName} not found.")
-        responseObserver.onError(new RuntimeException(s"Table ${request.getTableId.getName} not found"))
+        responseObserver.onError(
+          new StatusRuntimeException(
+            Status.NOT_FOUND.withDescription(s"Table ${request.getTableId.getName} not found")))
     }
   }
 
@@ -257,7 +378,9 @@ class TableServiceGrpcImpl(provider: DASSdkManager) extends TablesServiceGrpc.Ta
         logger.debug("Batch size modification completed successfully.")
       case None =>
         logger.error(s"Table ${request.getTableId.getName} not found.")
-        responseObserver.onError(new RuntimeException(s"Table ${request.getTableId.getName} not found"))
+        responseObserver.onError(
+          new StatusRuntimeException(
+            Status.NOT_FOUND.withDescription(s"Table ${request.getTableId.getName} not found")))
     }
   }
 
@@ -277,7 +400,9 @@ class TableServiceGrpcImpl(provider: DASSdkManager) extends TablesServiceGrpc.Ta
         logger.debug("Row inserted successfully.")
       case None =>
         logger.error(s"Table ${request.getTableId.getName} not found.")
-        responseObserver.onError(new RuntimeException(s"Table ${request.getTableId.getName} not found"))
+        responseObserver.onError(
+          new StatusRuntimeException(
+            Status.NOT_FOUND.withDescription(s"Table ${request.getTableId.getName} not found")))
     }
   }
 
@@ -299,7 +424,9 @@ class TableServiceGrpcImpl(provider: DASSdkManager) extends TablesServiceGrpc.Ta
         logger.debug("Bulk insert completed successfully.")
       case None =>
         logger.error(s"Table ${request.getTableId.getName} not found.")
-        responseObserver.onError(new RuntimeException(s"Table ${request.getTableId.getName} not found"))
+        responseObserver.onError(
+          new StatusRuntimeException(
+            Status.NOT_FOUND.withDescription(s"Table ${request.getTableId.getName} not found")))
     }
   }
 
@@ -319,7 +446,9 @@ class TableServiceGrpcImpl(provider: DASSdkManager) extends TablesServiceGrpc.Ta
         logger.debug("Rows updated successfully.")
       case None =>
         logger.error(s"Table ${request.getTableId.getName} not found.")
-        responseObserver.onError(new RuntimeException(s"Table ${request.getTableId.getName} not found"))
+        responseObserver.onError(
+          new StatusRuntimeException(
+            Status.NOT_FOUND.withDescription(s"Table ${request.getTableId.getName} not found")))
     }
   }
 
@@ -339,106 +468,8 @@ class TableServiceGrpcImpl(provider: DASSdkManager) extends TablesServiceGrpc.Ta
         logger.debug("Rows deleted successfully.")
       case None =>
         logger.error(s"Table ${request.getTableId.getName} not found.")
-        responseObserver.onError(new RuntimeException(s"Table ${request.getTableId.getName} not found"))
+        responseObserver.onError(new StatusRuntimeException(Status.NOT_FOUND.withDescription("Table not found")))
     }
-  }
-
-}
-
-/**
- * Iterator implementation for processing query results in chunks.
- *
- * @param request The request containing query details (used to build a cache key).
- * @param resultIterator The iterator of query results.
- * @param maxChunkSize The maximum size of each chunk.
- */
-class ChunksIterator(request: ExecuteTableRequest, resultIterator: DASExecuteResult, maxChunkSize: Int)
-    extends Iterator[Rows]
-    with Closeable
-    with StrictLogging {
-
-  logger.debug(s"Initializing ChunksIterator with maxChunkSize: $maxChunkSize, request: $request")
-
-  private val currentChunk = mutable.Buffer[Row]()
-  private val maxChunksToCache = 5
-  private var chunkCounter = 0
-  private var eofReached = false
-
-  private val completeChunkCache = mutable.Buffer[Rows]()
-
-  /**
-   * Checks if there are more rows to process.
-   *
-   * @return true if there are more rows, false otherwise.
-   */
-  override def hasNext: Boolean = {
-    val hasNext = resultIterator.hasNext || currentChunk.nonEmpty
-    logger.debug(s"hasNext() called. hasNext: $hasNext")
-    if (!hasNext) {
-      eofReached = true
-      logger.debug("EOF reached in hasNext()")
-    }
-    hasNext
-  }
-
-  /**
-   * Retrieves the next chunk of rows.
-   *
-   * @return The next chunk of rows.
-   */
-  override def next(): Rows = {
-    if (!hasNext) {
-      logger.debug("No more elements in next()")
-      throw new NoSuchElementException("No more elements")
-    }
-
-    logger.debug(s"Fetching next chunk. Chunk counter: $chunkCounter")
-
-    val nextChunk = getNextChunk()
-
-    logger.debug(s"Next chunk fetched with ${nextChunk.getRowsCount} rows")
-
-    // Cache the chunks up to a certain limit
-    if (chunkCounter < maxChunksToCache) {
-      // Append the chunk to the cache
-      completeChunkCache.append(nextChunk)
-      logger.debug(s"Appended chunk to cache. Cache size: ${completeChunkCache.size}")
-
-      // If we reached the end of the result set (or this is the last chunk, since it's not complete),
-      // cache the complete chunks read thus far for future use
-      if (eofReached || nextChunk.getRowsCount < maxChunkSize) {
-        logger.debug("Reached end of result set or last incomplete chunk. Caching complete chunks.")
-        DASChunksCache.put(request, completeChunkCache)
-        logger.debug("Chunks cached successfully.")
-      }
-    } else if (chunkCounter == maxChunksToCache) {
-      // We bail out of trying to cache chunks because it's getting too big
-      completeChunkCache.clear()
-      logger.debug("Reached maxChunksToCache limit. Cleared completeChunkCache.")
-    }
-
-    chunkCounter += 1
-    logger.debug(s"Incremented chunk counter to $chunkCounter")
-    nextChunk
-  }
-
-  // Builds a chunk of rows by reading from the result iterator.
-  private def getNextChunk(): Rows = {
-    currentChunk.clear()
-    logger.debug("Cleared currentChunk")
-    while (resultIterator.hasNext && currentChunk.size < maxChunkSize)
-      currentChunk += resultIterator.next()
-    val rows = Rows.newBuilder().addAllRows(currentChunk.asJava).build()
-    logger.debug(s"Built next chunk with ${currentChunk.size} rows")
-    rows
-  }
-
-  /**
-   * Closes the underlying result iterator.
-   */
-  override def close(): Unit = {
-    resultIterator.close()
-    logger.debug(s"Closed resultIterator for $request")
   }
 
 }

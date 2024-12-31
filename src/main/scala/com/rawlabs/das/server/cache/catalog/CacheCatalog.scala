@@ -14,24 +14,33 @@ package com.rawlabs.das.server.cache.catalog
 
 import java.util.UUID
 
+/**
+ * Defines methods for CRUD-like operations on the cache catalog.
+ */
 trait CacheCatalog {
 
-  // ------------------------------------------------------------------
-  // Public API Methods
-  // ------------------------------------------------------------------
+  /** Creates a new cache entry with the given definition. */
+  def createCache(cacheId: UUID, dasId: String, definition: CacheDefinition): Unit
 
-  /** Creates a new cache entry. */
-  def createCache(cacheId: UUID, dasId: String, definition: String): Unit
+  /** List all. */
+  def listAll(): List[CacheEntry]
+
+  /** Count all. */
+  def countAll(): Int
 
   /** List all rows by dasId. */
   def listByDasId(dasId: String): List[CacheEntry]
 
   /**
-   * Increments `numberOfTotalReads` and updates `lastAccessDate` to now.
+   * List all rows that match the given dasId AND the given tableId (found within the definition). We'll parse each
+   * definition and filter by `tableId`.
    */
+  def listCache(dasId: String, tableId: String): List[CacheEntry]
+
+  /** Increments `activeReaders`, `numberOfTotalReads` and updates `lastAccessDate` to now. */
   def addReader(cacheId: UUID): Unit
 
-  /** Decrements `numberOfTotalReads`. */
+  /** Decrements `activeReaders`. */
   def removeReader(cacheId: UUID): Unit
 
   /** Marks the cache as complete, sets `sizeInBytes`. */
@@ -49,15 +58,12 @@ trait CacheCatalog {
   /** Returns all rows that are NOT in state "complete". */
   def listBadCaches(): List[(String, UUID)]
 
-  /**
-   * Finds the cacheId for the oldest lastAccessDate. We treat NULL lastAccessDate as oldest.
-   *
-   * We'll do it with a small trick in SQL: ORDER BY (lastAccessDate IS NOT NULL), lastAccessDate ASC and take the first
-   * row (LIMIT 1).
-   */
+  /** Reset all active readers to 0. */
+  def resetAllActiveReaders(): Unit
+
+  /** Finds the cacheId for the oldest lastAccessDate without active readers. */
   def findCacheToDelete(): Option[UUID]
 
-  /** Closes the JDBC connection. */
+  /** Closes the catalog. */
   def close(): Unit
-
 }

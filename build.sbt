@@ -97,5 +97,7 @@ lazy val root = (project in file("."))
       "org.xerial" % "sqlite-jdbc" % "3.47.1.0",
       // Flyway
       "org.flywaydb" % "flyway-core" % "11.1.0",
+      // gRPC Testing
+      "io.grpc" % "grpc-inprocess" % "1.62.2",
       // Testing
       "org.scalatest" %% "scalatest" % "3.2.19" % Test))

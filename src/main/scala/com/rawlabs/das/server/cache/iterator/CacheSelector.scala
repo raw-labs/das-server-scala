@@ -12,29 +12,54 @@
 
 package com.rawlabs.das.server.cache.iterator
 
+import com.rawlabs.das.server.cache.catalog.{CacheDefinition, CacheEntry}
 import com.rawlabs.protocol.das.v1.query.Qual
-
-/**
- * Represents a cache definition with:
- *  - cacheId: unique identifier for the cache
- *  - quals:   sequence of Qual objects
- */
-case class CacheDef(cacheId: String, quals: Seq[Qual])
 
 object CacheSelector {
 
   /**
-   * Picks the "best" cache from a list of CacheDefs.
-   * By "best," we mean the one whose `quals` list has the fewest elements.
-   * If there's a tie, we pick the first among those tied for fewest.
-   * If `cacheDefs` is empty, returns None.
+   * Attempt to select a single cache from `cacheDefs` that can serve the new request:
+   *
+   *   1. The cache’s columns must cover the requested columns. (requestedColumns ⊆ cacheDef.columns) 2. The request’s
+   *      quals must imply (=>) the cache’s quals, so that the cache doesn’t contain any data that fails the new
+   *      request. We use `QualSelectivityAnalyzer.differenceIfMoreSelective(oldQuals, newQuals)`.
+   *      - Here, 'oldQuals' = cacheDef.quals
+   *      - 'newQuals' = requestedQuals
+   *      - If `differenceIfMoreSelective(old, new)` => Some(diff), that means new=>old plus diff are the “extra”
+   *        constraints to apply.
+   *      - If it’s None, the cache is not valid for this request (the new request isn’t guaranteed to be covered). 3.
+   *        Among all valid caches, pick the one with the fewest `cacheDef.quals.size` (tie => first). 4. Return
+   *        `(cacheId, differenceQuals)` so the caller knows which cache to use and which extra quals to apply.
+   *
+   * @return None if no cache qualifies; Some(cacheId, differenceQuals) if found.
    */
-  def pickBestCache(cacheDefs: Seq[CacheDef]): Option[String] = {
-    if (cacheDefs.isEmpty) {
+  def pickBestCache(
+      cacheEntries: Seq[CacheEntry],
+      requestedQuals: Seq[Qual],
+      requestedColumns: Seq[String]): Option[(CacheEntry, Seq[Qual])] = {
+
+    // 1) Filter by columns => the cache must contain at least all requested columns
+    val columnFiltered = cacheEntries.filter { e =>
+      requestedColumns.toSet.subsetOf(e.definition.columns.toSet)
+    }
+
+    // 2) Among those, see if `requestedQuals` => cd.quals using differenceIfMoreSelective(cd.quals, requestedQuals)
+    //    If it returns Some(diff), it means newQuals is strictly more selective than oldQuals.
+    //    That’s valid. The 'diff' are the extra constraints we must apply on top of the cache.
+    val validCandidates: Seq[(CacheEntry, Seq[Qual])] =
+      columnFiltered.flatMap { ce =>
+        QualSelectivityAnalyzer
+          .differenceIfMoreSelective(ce.definition.quals, requestedQuals)
+          .map { diff => (ce, diff) }
+      }
+
+    if (validCandidates.isEmpty) {
       None
     } else {
-      val best = cacheDefs.minBy(_.quals.size)
-      Some(best.cacheId)
+      // 3) Pick the cache with the fewest `cd.quals.size`
+      val best = validCandidates.minBy { case (ce, _) => ce.definition.quals.size }
+      // best is (cacheDef, differenceQuals)
+      Some((best._1, best._2))
     }
   }
 }

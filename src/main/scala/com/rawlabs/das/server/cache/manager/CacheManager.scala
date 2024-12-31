@@ -20,12 +20,17 @@ import scala.concurrent.duration._
 import scala.util.control.NonFatal
 
 import com.rawlabs.das.server.cache.catalog._
+import com.rawlabs.das.server.cache.iterator.QualEvaluator
 import com.rawlabs.das.server.cache.queue._
+import com.rawlabs.protocol.das.v1.query.Qual
+import com.rawlabs.protocol.das.v1.tables.Row
 
+import akka.NotUsed
 import akka.actor.typed._
 import akka.actor.typed.scaladsl.AskPattern._
 import akka.actor.typed.scaladsl._
 import akka.stream.scaladsl.Source
+import akka.stream.scaladsl.{Flow, Source}
 import akka.util.Timeout
 
 /**
@@ -43,10 +48,11 @@ object CacheManager {
   // 1) Protocol (Messages)
   // ================================================================
 
-  /** External request: "Give me an iterator/stream for the given (dasId, taskDescription)" */
+  /** External request: "Give me an iterator/stream for the given (dasId, definition)" */
   final case class GetIterator[T](
       dasId: String,
-      taskDescription: String,
+      definition: CacheDefinition,
+      minCreationDate: Option[java.time.Instant],
       makeTask: () => DataProducingTask[T],
       codec: Codec[T],
       replyTo: ActorRef[GetIteratorAck[T]])
@@ -78,7 +84,7 @@ object CacheManager {
   final case class InjectCacheEntry(
       cacheId: UUID,
       dasId: String,
-      description: String,
+      description: CacheDefinition,
       state: String,
       sizeInBytes: Option[Long] = None)
       extends Command[Nothing]
@@ -90,10 +96,23 @@ object CacheManager {
       catalog: CacheCatalog,
       baseDirectory: File,
       maxEntries: Int,
-      chooseBestEntry: List[CacheEntry] => Option[CacheEntry]): Behavior[Command[T]] =
+      batchSize: Int,
+      gracePeriod: FiniteDuration,
+      producerInterval: FiniteDuration,
+      chooseBestEntry: (CacheDefinition, List[CacheEntry]) => Option[(CacheEntry, Seq[Qual])],
+      satisfiesAllQuals: (T, Seq[Qual]) => Boolean): Behavior[Command[T]] =
     Behaviors.setup { ctx =>
       // We store manager logic in a dedicated class for clarity
-      new CacheManagerBehavior[T](ctx, catalog, baseDirectory, maxEntries, chooseBestEntry).create()
+      new CacheManagerBehavior[T](
+        ctx,
+        catalog,
+        baseDirectory,
+        maxEntries,
+        batchSize,
+        gracePeriod,
+        producerInterval,
+        chooseBestEntry,
+        satisfiesAllQuals).create()
     }
 }
 
@@ -106,7 +125,11 @@ private class CacheManagerBehavior[T](
     catalog: CacheCatalog,
     baseDirectory: File,
     maxEntries: Int,
-    chooseBestEntry: List[CacheEntry] => Option[CacheEntry]) {
+    batchSize: Int,
+    gracePeriod: FiniteDuration,
+    producerInterval: FiniteDuration,
+    chooseBestEntry: (CacheDefinition, List[CacheEntry]) => Option[(CacheEntry, Seq[Qual])],
+    satisfiesAllQuals: (T, Seq[Qual]) => Boolean) {
 
   import ctx.executionContext // For futures
 
@@ -118,21 +141,18 @@ private class CacheManagerBehavior[T](
     // do the cleanup now, synchronously, or in a blocking/future manner
     cleanupBadCaches()
 
+    // reset all active readers to 0
+    resetAllActiveReaders()
+
     // once done, switch to the running behavior
     runningBehavior
   }
-
-//  // On startup, schedule a “CleanupBadCaches”
-//  def create(): Behavior[CacheManager.Command[T]] = Behaviors.setup { _ =>
-//    ctx.self ! CacheManager.CleanupBadCaches
-//    runningBehavior
-//  }
 
   private def runningBehavior: Behavior[CacheManager.Command[T]] = Behaviors
     .receiveMessage[CacheManager.Command[T]] {
 
       case CacheManager.WrappedGetIterator(msg) =>
-        val (cid, srcFut) = handleGetIterator(msg.dasId, msg.taskDescription, msg.makeTask, msg.codec)
+        val (cid, srcFut) = handleGetIterator(msg.dasId, msg.definition, msg.minCreationDate, msg.makeTask, msg.codec)
         msg.replyTo ! CacheManager.GetIteratorAck(cid, srcFut)
         Behaviors.same
 
@@ -186,55 +206,114 @@ private class CacheManagerBehavior[T](
   // =====================================================
   private def handleGetIterator(
       dasId: String,
-      taskDescription: String,
+      definition: CacheDefinition, // includes tableId, columns, quals, sortKeys
+      minCreationDate: Option[java.time.Instant],
       makeTask: () => DataProducingTask[T],
       codec: Codec[T]): (UUID, Future[Option[Source[T, _]]]) = {
 
-    // Find potential existing entries
-    val possible = catalog
+    // 1) Find potential existing entries from the catalog
+    val possible: List[CacheEntry] = catalog
       .listByDasId(dasId)
-      .filterNot(e => e.state == CacheState.Error || e.state == CacheState.VoluntaryStop)
+      .filterNot(e =>
+        e.state == CacheState.Error ||
+          e.state == CacheState.VoluntaryStop ||
+          minCreationDate.exists(cutoff => e.creationDate.isBefore(cutoff)))
 
-    // Let the user pick
-    chooseBestEntry(possible) match {
-      case Some(entry) =>
+    // 2) Let "chooseBestEntry" do the coverage checks & find missingQuals
+    chooseBestEntry(definition, possible) match {
+
+      // ----------------------------------------------------------------
+      // A) We found an existing cache that covers columns + oldQuals
+      // ----------------------------------------------------------------
+      case Some((entry, diffQuals)) =>
         entry.state match {
           case CacheState.Complete =>
-            // Return archived
+            // This means we have a fully archived cache. We just read from disk.
             catalog.addReader(entry.cacheId)
-            val futSrc = Future.successful(Some(buildArchivedSource(entry.cacheId, codec)))
-            (entry.cacheId, futSrc)
+
+            // Build the base archived source
+            val baseSrc = buildArchivedSource(entry.cacheId, codec) // Source[T, _]
+
+            // If diffQuals is non-empty => apply them
+            val finalSrc =
+              if (diffQuals.nonEmpty) applyFilter(baseSrc, diffQuals)
+              else baseSrc
+
+            // Return it
+            val fut: Future[Option[Source[T, _]]] = Future.successful(Some(finalSrc))
+            (entry.cacheId, fut)
 
           case CacheState.InProgress =>
+            // We'll attach or spawn a data source
             catalog.addReader(entry.cacheId)
+
             val dsRef = dataSourceMap.getOrElse(
               entry.cacheId, {
                 val ref = spawnDataSource(entry.cacheId, makeTask, codec)
                 dataSourceMap += (entry.cacheId -> ref)
                 ref
               })
-            val fut = subscribeForReader(dsRef, entry.cacheId, codec)
+
+            // We get the base source via subscribeForReader
+            val fut: Future[Option[Source[T, _]]] =
+              subscribeForReader(dsRef, entry.cacheId, codec).map {
+                case Some(baseSrc) =>
+                  // If missing qualifiers => filter
+                  if (diffQuals.nonEmpty) Some(applyFilter(baseSrc, diffQuals))
+                  else Some(baseSrc)
+                case None => None
+              }
+
             (entry.cacheId, fut)
 
           case _ =>
-            // Shouldn't happen if we filtered error/volStop
+            // Shouldn't happen if we filtered out error/volStop
             (entry.cacheId, Future.successful(None))
         }
 
+      // ----------------------------------------------------------------
+      // B) No suitable cache => create new
+      // ----------------------------------------------------------------
       case None =>
-        // Create new
         enforceMaxEntries()
         val cacheId = UUID.randomUUID()
-        catalog.createCache(cacheId, dasId, taskDescription)
 
+        // Create brand-new row in the catalog
+        catalog.createCache(cacheId, dasId, definition)
+
+        // For a brand new cache => InProgress
         val dsRef = spawnDataSource(cacheId, makeTask, codec)
         dataSourceMap += (cacheId -> dsRef)
 
         catalog.addReader(cacheId)
 
+        // We have no 'diffQuals' here, because it's a fresh cache => we store exactly newQuals
         val fut = subscribeForReader(dsRef, cacheId, codec)
         (cacheId, fut)
     }
+  }
+
+  /**
+   * Applies the given `diffQuals` as a filter stage on `baseSrc`.
+   *
+   * This requires that we have a way to test each record `T` against `QualEvaluator.satisfiesAllQuals(...)`. You might
+   * need to adapt how you evaluate qualifiers for your record type.
+   */
+
+//TODO (msb): Make the qual evaluator a more general function
+
+  private def applyFilter(baseSrc: Source[T, _], diffQuals: Seq[Qual]): Source[T, NotUsed] = {
+    // If you want the same materialized value as the original, you
+    // can do .mapMaterializedValue(...) or keep it simpler:
+    baseSrc
+      .via(Flow[T].filter { record =>
+        // Suppose we have some function:
+        //    QualEvaluator.satisfiesAllQuals(record, diffQuals)
+        // that returns true if `record` meets all `diffQuals`.
+        satisfiesAllQuals(record, diffQuals)
+      })
+      // Force the mat value to NotUsed for clarity
+      .mapMaterializedValue(_ => NotUsed)
   }
 
   // =====================================================
@@ -251,9 +330,9 @@ private class CacheManagerBehavior[T](
       ChronicleDataSource[T](
         task = makeTask(),
         storage = storage,
-        batchSize = 10,
-        gracePeriod = 5.minutes,
-        producerInterval = 500.millis,
+        batchSize = batchSize,
+        gracePeriod = gracePeriod,
+        producerInterval = producerInterval,
         callbackRef = Some(ctx.messageAdapter[ChronicleDataSource.DataSourceLifecycleEvent] {
           case ChronicleDataSource.DataProductionComplete(size) => CacheManager.CacheComplete(cacheId, size)
           case ChronicleDataSource.DataProductionError(msg)     => CacheManager.CacheError(cacheId, msg)
@@ -312,12 +391,21 @@ private class CacheManagerBehavior[T](
     }
   }
 
+  private def resetAllActiveReaders(): Unit = {
+    catalog.resetAllActiveReaders()
+  }
+
   private def enforceMaxEntries(): Unit = {
-    catalog.findCacheToDelete().foreach { oldestId =>
-      catalog.deleteCache(oldestId)
-      dataSourceMap.get(oldestId).foreach(ctx.stop)
-      dataSourceMap -= oldestId
-      deleteCacheDir(oldestId)
+    val totalCount = catalog.countAll()
+    ctx.log.info(s"Checking max entries: actual $totalCount, max set to $maxEntries")
+    if (totalCount >= maxEntries) {
+      ctx.log.info("Max entries reached. Deleting oldest cache.")
+      catalog.findCacheToDelete().foreach { oldestId =>
+        catalog.deleteCache(oldestId)
+        dataSourceMap.get(oldestId).foreach(ctx.stop)
+        dataSourceMap -= oldestId
+        deleteCacheDir(oldestId)
+      }
     }
   }
 

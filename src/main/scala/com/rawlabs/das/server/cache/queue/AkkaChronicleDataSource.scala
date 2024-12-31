@@ -332,6 +332,7 @@ private class ChronicleDataSourceBehavior[T](
           Behaviors.same
 
         case GraceTimerExpired =>
+          ctx.log.info(s"Grace period expired, activeConsumers=$activeConsumers")
           if (activeConsumers == 0 && state == Running) {
             doVoluntaryStop()
           }
@@ -553,9 +554,9 @@ class AkkaChronicleDataSource[T](
     task: DataProducingTask[T],
     queueDir: File,
     codec: Codec[T],
-    batchSize: Int = 10,
+    batchSize: Int = 1000,
     gracePeriod: FiniteDuration = 5.minutes,
-    producerInterval: FiniteDuration = 500.millis,
+    producerInterval: FiniteDuration = 0.millis,
     callbackRef: Option[ActorRef[ChronicleDataSource.DataSourceLifecycleEvent]] = None)(implicit
     system: ActorSystem[_],
     mat: Materializer,
