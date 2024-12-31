@@ -99,5 +99,8 @@ lazy val root = (project in file("."))
       "org.flywaydb" % "flyway-core" % "11.1.0",
       // gRPC Testing
       "io.grpc" % "grpc-inprocess" % "1.62.2",
+      // Web UI
+      "com.typesafe.akka" %% "akka-http" % "10.5.3",
+      "com.lihaoyi" %% "scalatags" % "0.13.1",
       // Testing
       "org.scalatest" %% "scalatest" % "3.2.19" % Test))

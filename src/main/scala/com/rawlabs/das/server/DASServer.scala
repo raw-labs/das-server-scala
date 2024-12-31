@@ -29,6 +29,7 @@ import com.rawlabs.das.server.grpc.{
   ThrowableHandlingInterceptor
 }
 import com.rawlabs.das.server.manager.DASSdkManager
+import com.rawlabs.das.server.webui.{DASWebUIServer, DebugAppService}
 import com.rawlabs.protocol.das.v1.query.Qual
 import com.rawlabs.protocol.das.v1.services.HealthCheckServiceGrpc
 import com.rawlabs.protocol.das.v1.services.RegistrationServiceGrpc
@@ -118,9 +119,14 @@ object DASServer {
     implicit val mat: Materializer = Materializer(system)
     implicit val scheduler: Scheduler = system.scheduler
 
-    // 4) Start the server
+    // 4) Start the grpc server
     val dasServer = new DASServer(cacheManager)
     dasServer.start(50051)
+
+    // 5) Start the new server-side HTML UI
+    val debugService = new DebugAppService(cacheManager)
+    DASWebUIServer.startHttpInterface("0.0.0.0", 8080, debugService)
+
     dasServer.blockUntilShutdown()
   }
 

@@ -80,6 +80,20 @@ object CacheManager {
   /** Ask manager to list all caches for a given dasId, then reply with the full list. */
   final case class ListCaches(dasId: String, replyTo: ActorRef[List[CacheEntry]]) extends Command[Nothing]
 
+  /** Ask manager to list all caches, then reply with the full list. */
+  final case class ListAllCaches(replyTo: ActorRef[List[CacheEntry]]) extends Command[Nothing]
+
+  /** Ask manager to clear all caches, then reply with an ack. */
+  final case class ClearAllCaches(replyTo: ActorRef[ActionAck]) extends Command[Nothing]
+
+  /** We define a simple ack so the caller knows when it’s done. */
+  final case class ActionAck(success: Boolean, message: String)
+
+  /** Ask manager to list all data sources, then reply with the full list. */
+  final case class ListDataSources(replyTo: ActorRef[List[DataSourceInfo]]) extends Command[Nothing]
+
+  final case class DataSourceInfo(cacheId: UUID, state: String, activeReaders: Int)
+
   /** Force-inject a “bad” cache into the catalog for startup testing, etc. */
   final case class InjectCacheEntry(
       cacheId: UUID,
@@ -178,6 +192,35 @@ private class CacheManagerBehavior[T](
       case CacheManager.ListCaches(dasId, replyTo) =>
         val result = catalog.listByDasId(dasId)
         replyTo ! result
+        Behaviors.same
+
+      case CacheManager.ListAllCaches(replyTo) =>
+        val result = catalog.listAll()
+        replyTo ! result
+        Behaviors.same
+
+      case CacheManager.ClearAllCaches(replyTo) =>
+        // 1) Stop children
+        dataSourceMap.foreach { case (cid, childRef) =>
+          ctx.stop(childRef)
+        }
+        dataSourceMap = Map.empty
+
+        // 2) Clear catalog
+        val all = catalog.listAll()
+        all.foreach(e => catalog.deleteCache(e.cacheId))
+
+        replyTo ! CacheManager.ActionAck(success = true, message = s"Cleared ${all.size} cache entries.")
+        Behaviors.same
+
+      case CacheManager.ListDataSources(replyTo) =>
+        // For each dataSource, we can gather some minimal info. We could store “activeReaders” in a map, or just say 1?
+        // For illustration, let’s say they’re all “InProgress” if child is alive.
+        // This is just an example. You can store real states or gather from child.
+        val infoList = dataSourceMap.keys.map { cid =>
+          CacheManager.DataSourceInfo(cacheId = cid, state = "InProgress", activeReaders = 1)
+        }.toList
+        replyTo ! infoList
         Behaviors.same
 
       case CacheManager.InjectCacheEntry(cacheId, dasId, desc, state, sizeOpt) =>
