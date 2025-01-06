@@ -87,12 +87,19 @@ object DASServer {
     implicit val system: ActorSystem[Nothing] = ActorSystem[Nothing](Behaviors.empty, "das-server")
 
     // 2) Create manager
+    // This is the location of the metadata cache catalog
     val catalog: CacheCatalog = new SqliteCacheCatalog("jdbc:sqlite:/tmp/mycache.db")
+    // This is the location of the cache data (chronicle queue)
     val baseDir: File = new File("/tmp/cacheData")
+    // This is the max number of entries in the cache before we start GC'ing old entries
     val maxEntries: Int = 10
+    // This is how many rows of data are produced per producerInterval tick
     val batchSize = 1000
+    // This is how long we keep an iterator alive (but paused) even if there are no readers currently consuming it
     val gracePeriod = 5.minutes
+    // This is the interval at which the producer produces data. It produces batchSize rows per interval.
     val producerInterval = 5.millis
+
     val chooseBestEntry: (CacheDefinition, Seq[CacheEntry]) => Option[(CacheEntry, Seq[Qual])] = {
       case (definition, possible) => CacheSelector.pickBestCache(possible, definition.quals, definition.columns)
     }

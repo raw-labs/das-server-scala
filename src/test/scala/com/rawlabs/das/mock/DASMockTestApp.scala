@@ -12,12 +12,12 @@
 
 package com.rawlabs.das.mock
 
-import org.scalatest.funsuite.AnyFunSuite
-
 import com.rawlabs.das.server.DASServer
 
-class DASMockTest extends AnyFunSuite {
+// Run the main code with mock services
+object DASMockTestApp extends App {
 
-  ignore("Run the main code with mock services")(DASServer.main(Array()))
+  // (Can be used to pass custom parameters/settings in the future?)
+  DASServer.main(Array())
 
 }
