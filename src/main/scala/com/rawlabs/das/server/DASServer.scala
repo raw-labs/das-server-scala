@@ -12,42 +12,129 @@
 
 package com.rawlabs.das.server
 
-import com.rawlabs.protocol.das.services.{HealthCheckServiceGrpc, RegistrationServiceGrpc, TablesServiceGrpc}
-import com.rawlabs.utils.core.RawSettings
-import io.grpc.{Server, ServerBuilder}
+import java.io.File
 
-class DASServer(implicit settings: RawSettings) {
+import scala.concurrent.ExecutionContext
+import scala.concurrent.duration.DurationInt
+
+import com.rawlabs.das.sdk.DASSettings
+import com.rawlabs.das.server.cache.catalog.{CacheCatalog, CacheDefinition, CacheEntry, SqliteCacheCatalog}
+import com.rawlabs.das.server.cache.iterator.{CacheSelector, QualEvaluator}
+import com.rawlabs.das.server.cache.manager.CacheManager
+import com.rawlabs.das.server.cache.queue.Codec
+import com.rawlabs.das.server.grpc.{
+  HealthCheckServiceGrpcImpl,
+  RegistrationServiceGrpcImpl,
+  TableServiceGrpcImpl,
+  ThrowableHandlingInterceptor
+}
+import com.rawlabs.das.server.manager.DASSdkManager
+import com.rawlabs.das.server.webui.{DASWebUIServer, DebugAppService}
+import com.rawlabs.protocol.das.v1.query.Qual
+import com.rawlabs.protocol.das.v1.services.HealthCheckServiceGrpc
+import com.rawlabs.protocol.das.v1.services.RegistrationServiceGrpc
+import com.rawlabs.protocol.das.v1.services.TablesServiceGrpc
+import com.rawlabs.protocol.das.v1.tables.Row
+
+import akka.actor.typed.scaladsl.Behaviors
+import akka.actor.typed.{ActorRef, ActorSystem, Scheduler}
+import akka.stream.Materializer
+import io.grpc.Server
+import io.grpc.ServerBuilder
+
+class DASServer(cacheManager: ActorRef[CacheManager.Command[Row]])(
+    implicit settings: DASSettings,
+    implicit val ec: ExecutionContext,
+    implicit val materializer: Materializer,
+    implicit val scheduler: Scheduler) {
 
   private[this] var server: Server = _
 
   private val dasSdkManager = new DASSdkManager
-  private val cache = new DASResultCache()
+//  private val cache = new DASResultCache()
 
-  private val healthCheckService = HealthCheckServiceGrpc.bindService(new HealthCheckServiceGrpcImpl)
-  private val registrationService = RegistrationServiceGrpc.bindService(new RegistrationServiceGrpcImpl(dasSdkManager))
-  private val tablesService = TablesServiceGrpc.bindService(new TableServiceGrpcImpl(dasSdkManager, cache))
+  private val healthCheckService = HealthCheckServiceGrpc
+    .bindService(new HealthCheckServiceGrpcImpl)
+  private val registrationService = RegistrationServiceGrpc
+    .bindService(new RegistrationServiceGrpcImpl(dasSdkManager))
+  private val tablesService = TablesServiceGrpc
+    .bindService(new TableServiceGrpcImpl(dasSdkManager, cacheManager))
+//  private val functionsService - FunctionsServiceGrpc.bindService(new FunctionsServiceGrpcImpl(dasSdkManager))
 
-  def start(port: Int): Unit = {
+  def start(port: Int): Unit =
     server = ServerBuilder
       .forPort(port)
       .addService(healthCheckService)
       .addService(registrationService)
       .addService(tablesService)
+//      .addService(functionsService)
       .intercept(new ThrowableHandlingInterceptor)
       .build()
       .start()
-  }
 
-  def stop(): Unit = {
-    if (server != null) {
-      server.shutdown()
-    }
-  }
+  def stop(): Unit = if (server != null) server.shutdown()
 
-  def blockUntilShutdown(): Unit = {
-    if (server != null) {
-      server.awaitTermination()
+  def blockUntilShutdown(): Unit = if (server != null) server.awaitTermination()
+
+}
+
+object DASServer {
+
+  def main(args: Array[String]): Unit = {
+    implicit val settings = new DASSettings()
+
+    // 1) Create a typed ActorSystem
+    implicit val system: ActorSystem[Nothing] = ActorSystem[Nothing](Behaviors.empty, "das-server")
+
+    // 2) Create manager
+    // This is the location of the metadata cache catalog
+    val catalog: CacheCatalog = new SqliteCacheCatalog("jdbc:sqlite:/tmp/mycache.db")
+    // This is the location of the cache data (chronicle queue)
+    val baseDir: File = new File("/tmp/cacheData")
+    // This is the max number of entries in the cache before we start GC'ing old entries
+    val maxEntries: Int = 10
+    // This is how many rows of data are produced per producerInterval tick
+    val batchSize = 1000
+    // This is how long we keep an iterator alive (but paused) even if there are no readers currently consuming it
+    val gracePeriod = 5.minutes
+    // This is the interval at which the producer produces data. It produces batchSize rows per interval.
+    val producerInterval = 5.millis
+
+    val chooseBestEntry: (CacheDefinition, Seq[CacheEntry]) => Option[(CacheEntry, Seq[Qual])] = {
+      case (definition, possible) => CacheSelector.pickBestCache(possible, definition.quals, definition.columns)
     }
+    val satisfiesAllQuals: (Row, Seq[Qual]) => Boolean = { case (row, quals) =>
+      QualEvaluator.satisfiesAllQuals(row, quals)
+    }
+
+    val cacheManager =
+      system.systemActorOf(
+        CacheManager[Row](
+          catalog,
+          baseDir,
+          maxEntries,
+          batchSize,
+          gracePeriod,
+          producerInterval,
+          chooseBestEntry,
+          satisfiesAllQuals),
+        "cacheManager")
+
+    // 3) Derive or import the required implicits
+    //    - Typically from the typed ActorSystem
+    implicit val ec: ExecutionContext = system.executionContext
+    implicit val mat: Materializer = Materializer(system)
+    implicit val scheduler: Scheduler = system.scheduler
+
+    // 4) Start the grpc server
+    val dasServer = new DASServer(cacheManager)
+    dasServer.start(50051)
+
+    // 5) Start the new server-side HTML UI
+    val debugService = new DebugAppService(cacheManager)
+    DASWebUIServer.startHttpInterface("0.0.0.0", 8080, debugService)
+
+    dasServer.blockUntilShutdown()
   }
 
 }
