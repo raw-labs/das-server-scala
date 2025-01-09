@@ -15,17 +15,14 @@ package com.rawlabs.das.server.grpc
 import java.io.File
 import java.nio.file.Files
 import java.util.UUID
-
 import scala.concurrent._
 import scala.concurrent.duration._
 import scala.jdk.CollectionConverters._
 import scala.util.{Failure, Success, Try}
-
 import org.scalatest.BeforeAndAfterAll
 import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
-
 import com.google.protobuf.UnknownFieldSet.Field
 import com.rawlabs.das.sdk.DASSettings
 import com.rawlabs.das.server.cache.catalog._
@@ -38,8 +35,7 @@ import com.rawlabs.protocol.das.v1.common.DASId
 import com.rawlabs.protocol.das.v1.query._
 import com.rawlabs.protocol.das.v1.services._
 import com.rawlabs.protocol.das.v1.tables._
-import com.rawlabs.protocol.das.v1.types.{Value, ValueInt}
-
+import com.rawlabs.protocol.das.v1.types.{Value, ValueInt, ValueString}
 import akka.actor.testkit.typed.scaladsl.TestProbe
 import akka.actor.typed.scaladsl.{AskPattern, Behaviors}
 import akka.actor.typed.{ActorRef, ActorSystem, Scheduler}
@@ -192,11 +188,21 @@ class TablesServiceDASMockTestSpec extends AnyWordSpec with Matchers with Before
   }
 
   // Helper to build a simple Qual with an int threshold
-  private def simpleQualProto(colName: String, op: Operator, intVal: Int): Qual = {
+  private def intQualProto(colName: String, op: Operator, intVal: Int): Qual = {
     val sq = SimpleQual
       .newBuilder()
       .setOperator(op)
       .setValue(Value.newBuilder().setInt(ValueInt.newBuilder().setV(intVal)))
+      .build()
+    Qual.newBuilder().setName(colName).setSimpleQual(sq).build()
+  }
+
+  // Helper to build a simple Qual with an int threshold
+  private def stringQualProto(colName: String, op: Operator, stringVal: String): Qual = {
+    val sq = SimpleQual
+      .newBuilder()
+      .setOperator(op)
+      .setValue(Value.newBuilder().setString(ValueString.newBuilder().setV(stringVal)))
       .build()
     Qual.newBuilder().setName(colName).setSimpleQual(sq).build()
   }
@@ -405,7 +411,7 @@ class TablesServiceDASMockTestSpec extends AnyWordSpec with Matchers with Before
         .setQuery(
           Query
             .newBuilder()
-            .addQuals(simpleQualProto("column1", Operator.GREATER_THAN, 10)) // column1 > 10
+            .addQuals(intQualProto("column1", Operator.GREATER_THAN, 10)) // column1 > 10
             .addColumns("column1") // we only need column1 in this test
         )
         .build()
@@ -433,12 +439,31 @@ class TablesServiceDASMockTestSpec extends AnyWordSpec with Matchers with Before
         .setQuery(
           Query
             .newBuilder()
-            .addQuals(simpleQualProto("column1", Operator.GREATER_THAN, 50)) // column1 > 50
+            .addQuals(intQualProto("column1", Operator.GREATER_THAN, 50)) // column1 > 50
             .addColumns("column1"))
         .build()
 
       val rows2 = collectRows(blockingStub.executeTable(req2))
       rows2.size shouldBe 50
+
+      // STEP 3: Query again with an extra predicate. It should reuse the cache.
+      //
+      val req3 = ExecuteTableRequest
+        .newBuilder()
+        .setDasId(DASId.newBuilder().setId("1"))
+        .setTableId(TableId.newBuilder().setName("small"))
+        .setPlanId("plan-small-qual3")
+        .setQuery(
+          Query
+            .newBuilder()
+            .addQuals(intQualProto("column1", Operator.GREATER_THAN, 10)) // column1 > 10
+            .addQuals(stringQualProto("column2", Operator.EQUALS, "row_tmp_5"))
+            .addColumns("column1"))
+        .build()
+
+      val rows3 = collectRows(blockingStub.executeTable(req3))
+      // There is a row with "column2" == "row_tmp_5" but it's not in the range of column1 > 10
+      rows3.size shouldBe 0
 
       // This confirms the narrower qualifier is applied on top of the already-complete cache,
       // and we receive just the rows that match the new qualifier.

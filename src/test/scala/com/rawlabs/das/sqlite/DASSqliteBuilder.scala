@@ -10,14 +10,16 @@
  * licenses/APL.txt.
  */
 
-package com.rawlabs.das.mock
+package com.rawlabs.das.sqlite
 
-import org.scalatest.funsuite.AnyFunSuite
+import com.rawlabs.das.sdk.DASSettings
+import com.rawlabs.das.sdk.scala.{DASSdk, DASSdkBuilder}
 
-import com.rawlabs.das.server.DASServer
+class DASSqliteBuilder extends DASSdkBuilder {
 
-class DASMockTest extends AnyFunSuite {
+  override def dasType: String = "sqlite"
 
-  test("Run the main code with mock services")(DASServer.main(Array()))
-
+  override def build(options: Map[String, String])(implicit settings: DASSettings): DASSdk = {
+    new DASSqlite(options)
+  }
 }

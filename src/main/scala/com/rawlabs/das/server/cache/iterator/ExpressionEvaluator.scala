@@ -299,6 +299,8 @@ object ExpressionEvaluator {
         s1 < s2
 
       // (Add date/time if needed)
+      case (DateVal(y1, m1, d1), DateVal(y2, m2, d2)) =>
+        (y1 < y2) || (y1 == y2 && m1 < m2) || (y1 == y2 && m1 == m2 && d1 < d2)
       case _ => false
     }
   }
@@ -311,6 +313,8 @@ object ExpressionEvaluator {
         numericToBigDecimal(n1) > numericToBigDecimal(n2)
       case (StringVal(s1), StringVal(s2)) =>
         s1 > s2
+      case (DateVal(y1, m1, d1), DateVal(y2, m2, d2)) =>
+        (y1 > y2) || (y1 == y2 && m1 > m2) || (y1 == y2 && m1 == m2 && d1 > d2)
       case _ => false
     }
   }

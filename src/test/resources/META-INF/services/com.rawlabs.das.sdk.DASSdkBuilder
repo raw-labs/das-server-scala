@@ -1,1 +1,3 @@
 com.rawlabs.das.mock.DASMockBuilder
+com.rawlabs.das.sqlite.DASSqliteBuilder
+com.rawlabs.das.postgresql.DASPosgresqlBuilder

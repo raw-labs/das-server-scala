@@ -102,5 +102,7 @@ lazy val root = (project in file("."))
       // Web UI
       "com.typesafe.akka" %% "akka-http" % "10.5.3",
       "com.lihaoyi" %% "scalatags" % "0.13.1",
+      // Postgres
+      "org.postgresql" % "postgresql" % "42.7.4" % Test,
       // Testing
       "org.scalatest" %% "scalatest" % "3.2.19" % Test))
