@@ -12,14 +12,15 @@
 
 package com.rawlabs.das.postgresql
 
+import java.sql.{Connection, DriverManager, SQLException}
+
+import scala.jdk.CollectionConverters.IteratorHasAsScala
+
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.rawlabs.das.sdk.DASExecuteResult
 import com.rawlabs.das.sdk.scala.DASTable.TableEstimate
 import com.rawlabs.protocol.das.v1.tables._
 import com.rawlabs.protocol.das.v1.types._
-
-import java.sql.{Connection, DriverManager, SQLException}
-import scala.jdk.CollectionConverters.IteratorHasAsScala
 
 /**
  * A simple example backend for PostgreSQL, analogous to the SqliteBackend example.

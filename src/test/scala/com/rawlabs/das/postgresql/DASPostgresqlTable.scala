@@ -12,6 +12,8 @@
 
 package com.rawlabs.das.postgresql
 
+import scala.jdk.CollectionConverters.CollectionHasAsScala
+
 import com.rawlabs.das.sdk.DASExecuteResult
 import com.rawlabs.das.sdk.scala.DASTable
 import com.rawlabs.das.sdk.scala.DASTable.TableEstimate
@@ -19,8 +21,6 @@ import com.rawlabs.protocol.das.v1.query._
 import com.rawlabs.protocol.das.v1.tables.TableDefinition
 import com.rawlabs.protocol.das.v1.types.Value
 import com.rawlabs.protocol.das.v1.types.Value.ValueCase
-
-import scala.jdk.CollectionConverters.CollectionHasAsScala
 
 class DASPostgresqlTable(backend: PostgresqlBackend, defn: TableDefinition) extends DASTable {
 
