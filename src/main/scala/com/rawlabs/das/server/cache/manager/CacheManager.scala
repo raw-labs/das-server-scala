@@ -257,6 +257,7 @@ private class CacheManagerBehavior[T](
     // 1) Find potential existing entries from the catalog
     val possible: List[CacheEntry] = catalog
       .listByDasId(dasId)
+      .filter(e => e.definition.tableId == definition.tableId)
       .filterNot(e =>
         e.state == CacheState.Error ||
           e.state == CacheState.VoluntaryStop ||
