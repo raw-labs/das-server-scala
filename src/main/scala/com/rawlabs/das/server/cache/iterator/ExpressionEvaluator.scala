@@ -281,7 +281,7 @@ object ExpressionEvaluator {
           evalEquals(x, y)
         }
 
-      case _ => false
+      case _ => true
     }
   }
 
@@ -297,11 +297,15 @@ object ExpressionEvaluator {
       // Strings
       case (StringVal(s1), StringVal(s2)) =>
         s1 < s2
-
-      // (Add date/time if needed)
       case (DateVal(y1, m1, d1), DateVal(y2, m2, d2)) =>
         (y1 < y2) || (y1 == y2 && m1 < m2) || (y1 == y2 && m1 == m2 && d1 < d2)
-      case _ => false
+      case (TimestampVal(y1, mo1, d1, h1, mi1, s1, n1), TimestampVal(y2, mo2, d2, h2, mi2, s2, n2)) =>
+        (y1 < y2) || (y1 == y2 && mo1 < mo2) || (y1 == y2 && mo1 == mo2 && d1 < d2) ||
+        (y1 == y2 && mo1 == mo2 && d1 == d2 && h1 < h2) ||
+        (y1 == y2 && mo1 == mo2 && d1 == d2 && h1 == h2 && mi1 < mi2) ||
+        (y1 == y2 && mo1 == mo2 && d1 == d2 && h1 == h2 && mi1 == mi2 && s1 < s2) ||
+        (y1 == y2 && mo1 == mo2 && d1 == d2 && h1 == h2 && mi1 == mi2 && s1 == s2 && n1 < n2)
+      case _ => true
     }
   }
 
@@ -315,7 +319,13 @@ object ExpressionEvaluator {
         s1 > s2
       case (DateVal(y1, m1, d1), DateVal(y2, m2, d2)) =>
         (y1 > y2) || (y1 == y2 && m1 > m2) || (y1 == y2 && m1 == m2 && d1 > d2)
-      case _ => false
+      case (TimestampVal(y1, mo1, d1, h1, mi1, s1, n1), TimestampVal(y2, mo2, d2, h2, mi2, s2, n2)) =>
+        (y1 > y2) || (y1 == y2 && mo1 > mo2) || (y1 == y2 && mo1 == mo2 && d1 > d2) ||
+        (y1 == y2 && mo1 == mo2 && d1 == d2 && h1 > h2) ||
+        (y1 == y2 && mo1 == mo2 && d1 == d2 && h1 == h2 && mi1 > mi2) ||
+        (y1 == y2 && mo1 == mo2 && d1 == d2 && h1 == h2 && mi1 == mi2 && s1 > s2) ||
+        (y1 == y2 && mo1 == mo2 && d1 == d2 && h1 == h2 && mi1 == mi2 && s1 == s2 && n1 > n2)
+      case _ => true
     }
   }
 
