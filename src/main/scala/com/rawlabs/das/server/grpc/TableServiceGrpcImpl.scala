@@ -12,11 +12,16 @@
 
 package com.rawlabs.das.server.grpc
 
-import akka.NotUsed
-import akka.actor.typed.scaladsl.AskPattern.Askable
-import akka.actor.typed.{ActorRef, Scheduler}
-import akka.stream.Materializer
-import akka.stream.scaladsl.{Flow, Source}
+import java.io.Closeable
+import java.util.Optional
+
+import scala.collection.mutable
+import scala.concurrent.ExecutionContext
+import scala.jdk.CollectionConverters._
+import scala.jdk.OptionConverters._
+import scala.util.control.NonFatal
+import scala.util.{Failure, Success}
+
 import com.rawlabs.das.sdk.DASExecuteResult
 import com.rawlabs.das.server.cache.catalog.CacheDefinition
 import com.rawlabs.das.server.cache.iterator.QueryProcessorFlow
@@ -27,13 +32,14 @@ import com.rawlabs.das.server.manager.DASSdkManager
 import com.rawlabs.protocol.das.v1.services._
 import com.rawlabs.protocol.das.v1.tables._
 import com.typesafe.scalalogging.StrictLogging
-import io.grpc.stub.StreamObserver
-import io.grpc.{Status, StatusRuntimeException}
 
-import scala.concurrent.ExecutionContext
-import scala.jdk.CollectionConverters._
-import scala.jdk.OptionConverters._
-import scala.util.{Failure, Success}
+import akka.NotUsed
+import akka.actor.typed.scaladsl.AskPattern.Askable
+import akka.actor.typed.{ActorRef, Scheduler}
+import akka.stream.Materializer
+import akka.stream.scaladsl.{Flow, Source}
+import io.grpc.stub.StreamObserver
+import io.grpc.{Context, Status, StatusRuntimeException}
 
 /**
  * Implementation of the gRPC service for handling table-related operations.
@@ -44,7 +50,7 @@ import scala.util.{Failure, Success}
 class TableServiceGrpcImpl(
     provider: DASSdkManager,
     cacheManager: ActorRef[CacheManager.Command[Row]],
-    maxChunkSize: Int = 100)(
+    maxChunkSize: Int = 1000)(
     implicit val ec: ExecutionContext,
     implicit val materializer: Materializer,
     implicit val scheduler: Scheduler)
@@ -298,13 +304,13 @@ class TableServiceGrpcImpl(
     val clientMaxBytes = /* request.getMaxBytes */ 4194304 * 3 / 4
     // Build a stream that splits the rows by the client's max byte size
     val rowBatches = source
-      .via(new SizeBasedBatcher(clientMaxBytes)) // custom stage
-      .map{batchOfRows =>
-        logger.info(s"Sending ${batchOfRows.size} rows for planID=${request.getPlanId}.")
+      .via(new SizeBasedBatcher(maxBatchCount = maxChunkSize, maxBatchSizeBytes = clientMaxBytes)) // custom stage
+      .map { batchOfRows =>
         Rows
           .newBuilder()
           .addAllRows(batchOfRows.asJava)
-          .build()}
+          .build()
+      }
 
     val context = io.grpc.Context.current()
 

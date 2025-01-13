@@ -66,7 +66,7 @@ class SizeBasedBatcher(maxBatchCount: Long, maxBatchSizeBytes: Long) extends Gra
             }
 
             // If adding this row would exceed a batch limit, emit the current batch first
-            if (currentSize + elemSize > maxBatchSizeBytes || currentRowCount > maxBatchCount) {
+            if (currentSize + elemSize > maxBatchSizeBytes || currentRowCount + 1 > maxBatchCount) {
               emitBatch()
               buffer.clear()
               currentSize = 0L
