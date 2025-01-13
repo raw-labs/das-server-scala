@@ -534,7 +534,7 @@ class CacheManagerSpec extends AnyWordSpecLike with Matchers with Eventually wit
       manager ! CacheManager.WrappedGetIterator(
         CacheManager.GetIterator(
           dasId = "dasX",
-          definition = CacheDefinition("tableX2", Nil, Nil, Nil),
+          definition = CacheDefinition("tableX", Nil, Nil, Nil),
           minCreationDate = None,
           makeTask = taskFactory,
           codec = stringCodec,
