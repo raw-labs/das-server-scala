@@ -15,14 +15,17 @@ package com.rawlabs.das.server.grpc
 import java.io.File
 import java.nio.file.Files
 import java.util.UUID
+
 import scala.concurrent._
 import scala.concurrent.duration._
 import scala.jdk.CollectionConverters._
 import scala.util.{Failure, Success, Try}
+
 import org.scalatest.BeforeAndAfterAll
 import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
+
 import com.google.protobuf.UnknownFieldSet.Field
 import com.rawlabs.das.sdk.DASSettings
 import com.rawlabs.das.server.cache.catalog._
@@ -36,6 +39,7 @@ import com.rawlabs.protocol.das.v1.query._
 import com.rawlabs.protocol.das.v1.services._
 import com.rawlabs.protocol.das.v1.tables._
 import com.rawlabs.protocol.das.v1.types.{Value, ValueInt, ValueString}
+
 import akka.actor.testkit.typed.scaladsl.TestProbe
 import akka.actor.typed.scaladsl.{AskPattern, Behaviors}
 import akka.actor.typed.{ActorRef, ActorSystem, Scheduler}

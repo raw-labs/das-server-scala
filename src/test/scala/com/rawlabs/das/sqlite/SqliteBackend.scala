@@ -11,12 +11,12 @@
  */
 
 package com.rawlabs.das.sqlite
+import java.sql.{Connection, DriverManager, SQLException}
+import java.time.LocalDate
+
 import com.rawlabs.das.sdk.DASExecuteResult
 import com.rawlabs.protocol.das.v1.tables._
 import com.rawlabs.protocol.das.v1.types._
-
-import java.sql.{Connection, DriverManager, SQLException}
-import java.time.LocalDate
 
 class SqliteBackend(file: String) {
   val dbUrl = s"jdbc:sqlite:$file" // Adjust to your DB file path

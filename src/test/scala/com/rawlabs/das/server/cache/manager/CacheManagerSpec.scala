@@ -17,6 +17,7 @@ import java.nio.file.Files
 import java.time.Instant
 import java.util.UUID
 
+import scala.concurrent.Future
 import scala.concurrent.duration._
 import scala.util.{Failure, Success}
 
@@ -31,10 +32,9 @@ import com.rawlabs.das.server.cache.queue._
 import com.rawlabs.protocol.das.v1.query.Qual
 
 import akka.actor.testkit.typed.scaladsl.{ActorTestKit, TestProbe}
-import akka.actor.typed.{ActorRef, ActorSystem}
 import akka.actor.typed.scaladsl.AskPattern._
+import akka.actor.typed.{ActorRef, ActorSystem}
 import akka.stream.scaladsl.Source
-import scala.concurrent.Future
 
 class CacheManagerSpec extends AnyWordSpecLike with Matchers with Eventually with BeforeAndAfterAll {
 
@@ -82,8 +82,7 @@ class CacheManagerSpec extends AnyWordSpecLike with Matchers with Eventually wit
         lastAccessDate = None,
         activeReaders = 0,
         numberOfTotalReads = 0,
-        sizeInBytes = None
-      ))
+        sizeInBytes = None))
     }
 
     override def setCacheAsComplete(cacheId: UUID, sizeInBytes: Long): Unit = {
@@ -109,8 +108,7 @@ class CacheManagerSpec extends AnyWordSpecLike with Matchers with Eventually wit
         entries += (cacheId -> e.copy(
           activeReaders = e.activeReaders + 1,
           numberOfTotalReads = e.numberOfTotalReads + 1,
-          lastAccessDate = Some(Instant.now())
-        ))
+          lastAccessDate = Some(Instant.now())))
       }
     }
 
@@ -162,8 +160,8 @@ class CacheManagerSpec extends AnyWordSpecLike with Matchers with Eventually wit
 
   // Our simplistic choice for coverage => pick the first entry
   private def chooseBestEntry(
-                               definition: CacheDefinition,
-                               possible: List[CacheEntry]): Option[(CacheEntry, Seq[Qual])] = {
+      definition: CacheDefinition,
+      possible: List[CacheEntry]): Option[(CacheEntry, Seq[Qual])] = {
     possible.headOption.map { entry =>
       // We return diffQuals = Seq.empty for simplicity
       (entry, Seq.empty)
@@ -193,10 +191,10 @@ class CacheManagerSpec extends AnyWordSpecLike with Matchers with Eventually wit
 
   // Convenience for test: spawn the manager
   private def spawnManager(
-                            catalog: CacheCatalog,
-                            maxEntries: Int = 10,
-                            batchSize: Int = 10,
-                            nameSuffix: String = "test"): ActorRef[CacheManager.Command[String]] = {
+      catalog: CacheCatalog,
+      maxEntries: Int = 10,
+      batchSize: Int = 10,
+      nameSuffix: String = "test"): ActorRef[CacheManager.Command[String]] = {
     val baseDir = createTempDir()
     testKit.spawn(
       CacheManager[String](
@@ -207,10 +205,8 @@ class CacheManagerSpec extends AnyWordSpecLike with Matchers with Eventually wit
         gracePeriod = 5.minutes,
         producerInterval = 500.millis,
         chooseBestEntry = chooseBestEntry,
-        satisfiesAllQuals = satisfiesAllQuals
-      ),
-      s"manager-$nameSuffix"
-    )
+        satisfiesAllQuals = satisfiesAllQuals),
+      s"manager-$nameSuffix")
   }
 
   // ============================================================================
@@ -265,9 +261,7 @@ class CacheManagerSpec extends AnyWordSpecLike with Matchers with Eventually wit
           minCreationDate = None,
           makeTask = taskFactory,
           codec = stringCodec,
-          replyTo = probeAck.ref
-        )
-      )
+          replyTo = probeAck.ref))
 
       val ack = probeAck.receiveMessage()
       ack.cacheId.toString.length should be > 0
@@ -289,8 +283,7 @@ class CacheManagerSpec extends AnyWordSpecLike with Matchers with Eventually wit
         dasId = "dasA",
         description = CacheDefinition("tableA", Nil, Nil, Nil),
         state = CacheState.Complete,
-        sizeInBytes = Some(999L)
-      )
+        sizeInBytes = Some(999L))
 
       // Wait until manager sees it
       val listProbe = TestProbe[List[CacheEntry]]()
@@ -309,9 +302,7 @@ class CacheManagerSpec extends AnyWordSpecLike with Matchers with Eventually wit
           minCreationDate = None,
           makeTask = taskFactory,
           codec = stringCodec,
-          replyTo = ackProbe.ref
-        )
-      )
+          replyTo = ackProbe.ref))
       val ack = ackProbe.receiveMessage()
       ack.cacheId shouldBe preId
 
@@ -332,8 +323,7 @@ class CacheManagerSpec extends AnyWordSpecLike with Matchers with Eventually wit
         cacheId = inProgId,
         dasId = "dasB",
         description = CacheDefinition("tableB", Nil, Nil, Nil),
-        state = CacheState.InProgress
-      )
+        state = CacheState.InProgress)
 
       // Wait for manager
       val listProbe = TestProbe[List[CacheEntry]]()
@@ -352,9 +342,7 @@ class CacheManagerSpec extends AnyWordSpecLike with Matchers with Eventually wit
           minCreationDate = None,
           makeTask = taskFactory,
           codec = stringCodec,
-          replyTo = ackProbe.ref
-        )
-      )
+          replyTo = ackProbe.ref))
       val ack = ackProbe.receiveMessage()
       ack.cacheId shouldBe inProgId
     }
@@ -368,16 +356,14 @@ class CacheManagerSpec extends AnyWordSpecLike with Matchers with Eventually wit
         cacheId = errId,
         dasId = "dasC",
         description = CacheDefinition("tableC", Nil, Nil, Nil),
-        state = CacheState.Error
-      )
+        state = CacheState.Error)
 
       val stopId = UUID.randomUUID()
       manager ! CacheManager.InjectCacheEntry(
         cacheId = stopId,
         dasId = "dasC",
         description = CacheDefinition("tableC2", Nil, Nil, Nil),
-        state = CacheState.VoluntaryStop
-      )
+        state = CacheState.VoluntaryStop)
 
       // Wait for manager
       val listProbe = TestProbe[List[CacheEntry]]()
@@ -396,9 +382,7 @@ class CacheManagerSpec extends AnyWordSpecLike with Matchers with Eventually wit
           minCreationDate = None,
           makeTask = taskFactory,
           codec = stringCodec,
-          replyTo = ackProbe.ref
-        )
-      )
+          replyTo = ackProbe.ref))
       val ack = ackProbe.receiveMessage()
       ack.cacheId should not be errId
       ack.cacheId should not be stopId
@@ -413,8 +397,7 @@ class CacheManagerSpec extends AnyWordSpecLike with Matchers with Eventually wit
         cacheId = cid,
         dasId = "dasX",
         description = CacheDefinition("tableX", Nil, Nil, Nil),
-        state = CacheState.InProgress
-      )
+        state = CacheState.InProgress)
 
       // Wait for manager
       val listProbe = TestProbe[List[CacheEntry]]()
@@ -443,8 +426,7 @@ class CacheManagerSpec extends AnyWordSpecLike with Matchers with Eventually wit
         cacheId = cid,
         dasId = "dasErr",
         description = CacheDefinition("tableErr", Nil, Nil, Nil),
-        state = CacheState.InProgress
-      )
+        state = CacheState.InProgress)
 
       // Wait
       val listProbe = TestProbe[List[CacheEntry]]()
@@ -472,8 +454,7 @@ class CacheManagerSpec extends AnyWordSpecLike with Matchers with Eventually wit
         cid,
         "dasStop",
         CacheDefinition("tableStop", Nil, Nil, Nil),
-        CacheState.InProgress
-      )
+        CacheState.InProgress)
 
       // wait
       val listProbe = TestProbe[List[CacheEntry]]()
@@ -502,8 +483,7 @@ class CacheManagerSpec extends AnyWordSpecLike with Matchers with Eventually wit
         "dasOld",
         CacheDefinition("tableOld", Nil, Nil, Nil),
         CacheState.Complete,
-        Some(111L)
-      )
+        Some(111L))
 
       // wait
       val listProbe = TestProbe[List[CacheEntry]]()
@@ -521,9 +501,7 @@ class CacheManagerSpec extends AnyWordSpecLike with Matchers with Eventually wit
           minCreationDate = None,
           makeTask = taskFactory,
           codec = stringCodec,
-          replyTo = ackProbe.ref
-        )
-      )
+          replyTo = ackProbe.ref))
       ackProbe.receiveMessage()
 
       eventually {
@@ -542,8 +520,7 @@ class CacheManagerSpec extends AnyWordSpecLike with Matchers with Eventually wit
         "dasX",
         CacheDefinition("tableX", Nil, Nil, Nil),
         CacheState.Complete,
-        Some(123L)
-      )
+        Some(123L))
 
       // wait
       val listProbe = TestProbe[List[CacheEntry]]()
@@ -561,9 +538,7 @@ class CacheManagerSpec extends AnyWordSpecLike with Matchers with Eventually wit
           minCreationDate = None,
           makeTask = taskFactory,
           codec = stringCodec,
-          replyTo = ackProbe.ref
-        )
-      )
+          replyTo = ackProbe.ref))
       val ack = ackProbe.receiveMessage()
       ack.cacheId shouldBe cid
 
@@ -584,8 +559,7 @@ class CacheManagerSpec extends AnyWordSpecLike with Matchers with Eventually wit
         inProgId,
         "dasZ",
         CacheDefinition("tableZ", Nil, Nil, Nil),
-        CacheState.InProgress
-      )
+        CacheState.InProgress)
 
       // wait
       val listProbe = TestProbe[List[CacheEntry]]()
@@ -611,9 +585,7 @@ class CacheManagerSpec extends AnyWordSpecLike with Matchers with Eventually wit
           minCreationDate = None,
           makeTask = taskFactory,
           codec = stringCodec,
-          replyTo = ackProbe.ref
-        )
-      )
+          replyTo = ackProbe.ref))
       val ack = ackProbe.receiveMessage()
 
       ack.sourceFuture.onComplete {
@@ -639,8 +611,7 @@ class CacheManagerSpec extends AnyWordSpecLike with Matchers with Eventually wit
         "dasDate",
         CacheDefinition("tableDate", Nil, Nil, Nil),
         CacheState.Complete,
-        Some(100L)
-      )
+        Some(100L))
 
       val newerId = UUID.randomUUID()
       manager ! CacheManager.InjectCacheEntry(
@@ -648,8 +619,7 @@ class CacheManagerSpec extends AnyWordSpecLike with Matchers with Eventually wit
         "dasDate",
         CacheDefinition("tableDate", Nil, Nil, Nil),
         CacheState.Complete,
-        Some(200L)
-      )
+        Some(200L))
 
       // 2) Wait for them to appear in manager
       val listProbe = TestProbe[List[CacheEntry]]()
@@ -662,7 +632,7 @@ class CacheManagerSpec extends AnyWordSpecLike with Matchers with Eventually wit
       // 3) Manually tweak creation dates in the *catalog*
       val now = Instant.now()
       catalog.setCreationDate(olderId, now.minusSeconds(30)) // older
-      catalog.setCreationDate(newerId, now.minusSeconds(5))  // newer
+      catalog.setCreationDate(newerId, now.minusSeconds(5)) // newer
 
       // 4) We'll do an eventually check again => manager always calls .listByDasId(...) => should see updated creationDates
       eventually {
@@ -670,7 +640,9 @@ class CacheManagerSpec extends AnyWordSpecLike with Matchers with Eventually wit
         val list = listProbe.receiveMessage()
         val maybeOlder = list.find(_.cacheId == olderId)
         val maybeNewer = list.find(_.cacheId == newerId)
-        maybeOlder.map(_.creationDate).getOrElse(Instant.EPOCH) should be < maybeNewer.map(_.creationDate).getOrElse(Instant.MAX)
+        maybeOlder
+          .map(_.creationDate)
+          .getOrElse(Instant.EPOCH) should be < maybeNewer.map(_.creationDate).getOrElse(Instant.MAX)
       }
 
       // 5) Now ask with minCreationDate => we want to skip olderId, pick newerId
@@ -683,9 +655,7 @@ class CacheManagerSpec extends AnyWordSpecLike with Matchers with Eventually wit
           minCreationDate = cutoff,
           makeTask = taskFactory,
           codec = stringCodec,
-          replyTo = ackProbe.ref
-        )
-      )
+          replyTo = ackProbe.ref))
       val ack = ackProbe.receiveMessage()
 
       // This should pick the "newerId"
@@ -702,8 +672,7 @@ class CacheManagerSpec extends AnyWordSpecLike with Matchers with Eventually wit
         "dasSame",
         CacheDefinition("tableSame", Nil, Nil, Nil),
         CacheState.Complete,
-        Some(999L)
-      )
+        Some(999L))
 
       // wait
       val listProbe = TestProbe[List[CacheEntry]]()
@@ -733,9 +702,7 @@ class CacheManagerSpec extends AnyWordSpecLike with Matchers with Eventually wit
           minCreationDate = cutoff,
           makeTask = taskFactory,
           codec = stringCodec,
-          replyTo = ackProbe.ref
-        )
-      )
+          replyTo = ackProbe.ref))
       val ack = ackProbe.receiveMessage()
       ack.cacheId shouldBe cacheId
     }
@@ -750,8 +717,7 @@ class CacheManagerSpec extends AnyWordSpecLike with Matchers with Eventually wit
         "dasNewDate",
         CacheDefinition("tableNewDate", Nil, Nil, Nil),
         CacheState.Complete,
-        Some(111L)
-      )
+        Some(111L))
 
       // wait
       val listProbe = TestProbe[List[CacheEntry]]()
@@ -781,9 +747,7 @@ class CacheManagerSpec extends AnyWordSpecLike with Matchers with Eventually wit
           minCreationDate = cutoff,
           makeTask = taskFactory,
           codec = stringCodec,
-          replyTo = ackProbe.ref
-        )
-      )
+          replyTo = ackProbe.ref))
       val ack = ackProbe.receiveMessage()
 
       ack.cacheId should not be oldId

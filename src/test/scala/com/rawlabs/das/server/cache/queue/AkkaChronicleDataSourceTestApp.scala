@@ -11,15 +11,16 @@
  */
 
 package com.rawlabs.das.server.cache.queue
+import java.io.File
+
+import scala.concurrent.ExecutionContext
+import scala.concurrent.duration._
+import scala.util.{Failure, Success}
+
 import akka.actor.typed.scaladsl.Behaviors
 import akka.actor.typed.{ActorSystem, Behavior}
 import akka.stream.scaladsl.Sink
 import akka.stream.{Materializer, SystemMaterializer}
-
-import java.io.File
-import scala.concurrent.ExecutionContext
-import scala.concurrent.duration._
-import scala.util.{Failure, Success}
 
 object ExampleTypedApp extends App {
 
