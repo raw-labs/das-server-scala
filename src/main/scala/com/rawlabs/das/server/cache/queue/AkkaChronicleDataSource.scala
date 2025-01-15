@@ -332,7 +332,7 @@ private class ChronicleDataSourceBehavior[T](
           Behaviors.same
 
         case GraceTimerExpired =>
-          ctx.log.info(s"Grace period expired, activeConsumers=$activeConsumers")
+          ctx.log.info(s"Grace period expired, activeConsumers=$activeConsumers, state=$state")
           if (activeConsumers == 0 && state == Running) {
             doVoluntaryStop()
           }
@@ -430,12 +430,15 @@ private class ChronicleDataSourceBehavior[T](
 
   // Grace timer handling
   private def checkGracePeriod(): Unit = {
+    log.debug(s"Checking grace period: $activeConsumers consumers, state=$state, graceTimerActive=$graceTimerActive")
     if (activeConsumers == 0 && state == Running && !graceTimerActive) {
+      log.info(s"No consumers, starting grace period of $gracePeriod.")
       timers.startSingleTimer(GraceTimerExpired, GraceTimerExpired, gracePeriod)
       graceTimerActive = true
     }
   }
   private def cancelGraceTimer(): Unit = {
+    log.info("Cancelling grace timer.")
     timers.cancel(GraceTimerExpired)
     graceTimerActive = false
   }
@@ -539,6 +542,7 @@ class ChronicleSourceGraphStage[T](
         // Notify the typed producer
         actor ! ChronicleDataSource.ConsumerTerminated(consumerId)
         tailer.close()
+        storage.close()
         super.postStop()
       }
 
