@@ -12,13 +12,6 @@
 
 package com.rawlabs.das.server.cache.queue
 
-import java.io.{Closeable, File}
-import java.util.concurrent.atomic.AtomicLong
-
-import scala.concurrent.duration._
-import scala.concurrent.{ExecutionContext, Future}
-import scala.util.control.NonFatal
-
 import akka.actor.typed._
 import akka.actor.typed.scaladsl.AskPattern._
 import akka.actor.typed.scaladsl._
@@ -26,8 +19,13 @@ import akka.stream._
 import akka.stream.scaladsl.Source
 import akka.stream.stage._
 import akka.util.Timeout
-import net.openhft.chronicle.queue.ExcerptTailer
-import net.openhft.chronicle.queue.{ChronicleQueue, ExcerptAppender}
+import net.openhft.chronicle.queue.{ChronicleQueue, ExcerptAppender, ExcerptTailer}
+
+import java.io.{Closeable, File}
+import java.util.concurrent.atomic.AtomicLong
+import scala.concurrent.duration._
+import scala.concurrent.{ExecutionContext, Future}
+import scala.util.control.NonFatal
 
 /**
  * REQUIREMENTS & DESIGN NOTES
@@ -542,7 +540,6 @@ class ChronicleSourceGraphStage[T](
         // Notify the typed producer
         actor ! ChronicleDataSource.ConsumerTerminated(consumerId)
         tailer.close()
-        storage.close()
         super.postStop()
       }
 
