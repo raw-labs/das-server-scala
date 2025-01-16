@@ -22,6 +22,7 @@ import akka.util.Timeout
 import net.openhft.chronicle.queue.{ChronicleQueue, ExcerptAppender, ExcerptTailer}
 
 import java.io.{Closeable, File}
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
 import scala.concurrent.duration._
 import scala.concurrent.{ExecutionContext, Future}
@@ -223,9 +224,9 @@ object ChronicleDataSource {
 
   // Outbound lifecycle events (if you want to notify another typed actor)
   sealed trait DataSourceLifecycleEvent
-  final case class DataProductionComplete(sizeInBytes: Long) extends DataSourceLifecycleEvent
-  final case class DataProductionError(msg: String) extends DataSourceLifecycleEvent
-  final case object DataProductionVoluntaryStop extends DataSourceLifecycleEvent
+  final case class DataProductionComplete(cacheId: UUID, sizeInBytes: Long) extends DataSourceLifecycleEvent
+  final case class DataProductionError(cacheId: UUID, msg: String) extends DataSourceLifecycleEvent
+  final case class DataProductionVoluntaryStop(cacheId: UUID) extends DataSourceLifecycleEvent
 
   // Commands (inbound)
   sealed trait ChronicleDataSourceCommand
@@ -259,6 +260,7 @@ object ChronicleDataSource {
    * Create a typed Behavior for the data source.
    */
   def apply[T](
+      cacheId: UUID,
       task: DataProducingTask[T],
       storage: ChronicleStorage[T],
       batchSize: Int,
@@ -268,6 +270,7 @@ object ChronicleDataSource {
     Behaviors.setup { context =>
       Behaviors.withTimers { timers =>
         new ChronicleDataSourceBehavior[T](
+          cacheId,
           context,
           timers,
           task,
@@ -284,6 +287,7 @@ object ChronicleDataSource {
  * Internal logic class. We store mutable fields for simplicity, but we remain in typed style.
  */
 private class ChronicleDataSourceBehavior[T](
+    cacheId: UUID,
     ctx: ActorContext[ChronicleDataSource.ChronicleDataSourceCommand],
     timers: TimerScheduler[ChronicleDataSource.ChronicleDataSourceCommand],
     task: DataProducingTask[T],
@@ -394,7 +398,7 @@ private class ChronicleDataSourceBehavior[T](
         timers.cancel(ProducerTick)
 
         callbackRef.foreach { ref =>
-          ref ! DataProductionComplete(sizeInBytes = 0L)
+          ref ! DataProductionComplete(cacheId, sizeInBytes = 0L)
         }
       }
 
@@ -408,7 +412,7 @@ private class ChronicleDataSourceBehavior[T](
         timers.cancel(ProducerTick)
 
         callbackRef.foreach { ref =>
-          ref ! DataProductionError(e.getMessage)
+          ref ! DataProductionError(cacheId, e.getMessage)
         }
     }
   }
@@ -422,7 +426,7 @@ private class ChronicleDataSourceBehavior[T](
     timers.cancel(ProducerTick)
 
     callbackRef.foreach { ref =>
-      ref ! DataProductionVoluntaryStop
+      ref ! DataProductionVoluntaryStop(cacheId)
     }
   }
 
@@ -552,6 +556,7 @@ class ChronicleSourceGraphStage[T](
  * method to stop it.
  */
 class AkkaChronicleDataSource[T](
+    cacheId: UUID,
     task: DataProducingTask[T],
     queueDir: File,
     codec: Codec[T],
@@ -569,7 +574,7 @@ class AkkaChronicleDataSource[T](
 
   private val producerRef: ActorRef[ChronicleDataSourceCommand] =
     system.systemActorOf(
-      ChronicleDataSource[T](task, storage, batchSize, gracePeriod, producerInterval, callbackRef),
+      ChronicleDataSource[T](cacheId, task, storage, batchSize, gracePeriod, producerInterval, callbackRef),
       name = s"chronicle-datasource-${java.util.UUID.randomUUID()}")
 
   def actorRef: ActorRef[ChronicleDataSource.ChronicleDataSourceCommand] = producerRef

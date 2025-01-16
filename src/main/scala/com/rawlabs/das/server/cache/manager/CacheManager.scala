@@ -144,7 +144,12 @@ private class CacheManagerBehavior[T](
 
   // We'll keep track of child data source actors by cacheId
   private var dataSourceMap = Map.empty[UUID, ActorRef[ChronicleDataSource.ChronicleDataSourceCommand]]
-
+  private val dataSourceEventAdapter: ActorRef[ChronicleDataSource.DataSourceLifecycleEvent] =
+    ctx.messageAdapter[ChronicleDataSource.DataSourceLifecycleEvent] {
+      case ChronicleDataSource.DataProductionComplete(cacheId, size) => CacheManager.CacheComplete(cacheId, size)
+      case ChronicleDataSource.DataProductionError(cacheId, msg)     => CacheManager.CacheError(cacheId, msg)
+      case ChronicleDataSource.DataProductionVoluntaryStop(cacheId)  => CacheManager.CacheVoluntaryStop(cacheId)
+    }
   // On startup, cleanup bad caches and switch to running
   def create(): Behavior[CacheManager.Command[T]] = Behaviors.setup { ctx =>
     // do the cleanup now, synchronously, or in a blocking/future manner
@@ -367,16 +372,13 @@ private class CacheManagerBehavior[T](
 
     ctx.spawn(
       ChronicleDataSource[T](
+        cacheId = cacheId,
         task = makeTask(),
         storage = storage,
         batchSize = batchSize,
         gracePeriod = gracePeriod,
         producerInterval = producerInterval,
-        callbackRef = Some(ctx.messageAdapter[ChronicleDataSource.DataSourceLifecycleEvent] {
-          case ChronicleDataSource.DataProductionComplete(size) => CacheManager.CacheComplete(cacheId, size)
-          case ChronicleDataSource.DataProductionError(msg)     => CacheManager.CacheError(cacheId, msg)
-          case ChronicleDataSource.DataProductionVoluntaryStop  => CacheManager.CacheVoluntaryStop(cacheId)
-        })),
+        callbackRef = Some(dataSourceEventAdapter)),
       s"datasource-$cacheId")
   }
 

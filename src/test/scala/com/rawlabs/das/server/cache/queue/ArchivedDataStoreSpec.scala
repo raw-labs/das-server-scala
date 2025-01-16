@@ -14,24 +14,23 @@ package com.rawlabs.das.server.cache.queue
 
 import java.io.File
 import java.nio.file.{Files, Path}
-
 import scala.collection.concurrent.TrieMap
 import scala.collection.mutable.ArrayBuffer
 import scala.concurrent._
 import scala.concurrent.duration._
 import scala.util.{Failure, Success}
-
 import org.scalatest.BeforeAndAfterAll
 import org.scalatest.concurrent.{Eventually, ScalaFutures}
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.time.{Millis, Seconds, Span}
 import org.scalatest.wordspec.AnyWordSpecLike
-
 import akka.actor.testkit.typed.scaladsl.{ScalaTestWithActorTestKit, TestProbe}
 import akka.actor.typed.{ActorSystem, Terminated}
 import akka.stream.scaladsl.Sink
 import akka.stream.{Materializer, SystemMaterializer}
 import akka.util.Timeout
+
+import java.util.UUID
 
 /**
  * Rewritten spec for testing archived, read-only Chronicle data using the new AkkaChronicleDataSource to produce the
@@ -92,6 +91,7 @@ class ArchivedDataStoreSpec
 
       // 1) Produce [1..100] via AkkaChronicleDataSource
       val dataSource = new AkkaChronicleDataSource[Int](
+        UUID.randomUUID(),
         task = new RangeProducingTask(1, 100),
         queueDir = queueDir,
         codec = intCodec,
@@ -162,6 +162,7 @@ class ArchivedDataStoreSpec
 
       // 1) Produce [1..100] and finalize (EOF)
       val dataSource = new AkkaChronicleDataSource[Int](
+        UUID.randomUUID(),
         task = new RangeProducingTask(1, 100),
         queueDir = queueDir,
         codec = intCodec,

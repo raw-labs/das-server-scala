@@ -12,15 +12,15 @@
 
 package com.rawlabs.das.server.cache.queue
 import java.io.File
-
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 import scala.util.{Failure, Success}
-
 import akka.actor.typed.scaladsl.Behaviors
 import akka.actor.typed.{ActorSystem, Behavior}
 import akka.stream.scaladsl.Sink
 import akka.stream.{Materializer, SystemMaterializer}
+
+import java.util.UUID
 
 object ExampleTypedApp extends App {
 
@@ -45,6 +45,7 @@ object ExampleTypedApp extends App {
 
     val queueDir = new File("/tmp/chronicle-typed")
     val ds = new AkkaChronicleDataSource[String](
+      UUID.randomUUID(),
       task = myTask,
       queueDir,
       myCodec,

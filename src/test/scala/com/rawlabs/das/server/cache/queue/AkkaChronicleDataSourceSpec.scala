@@ -14,21 +14,20 @@ package com.rawlabs.das.server.cache.queue
 
 import java.io.File
 import java.nio.file.{Files, Path}
-
 import scala.concurrent.duration._
 import scala.concurrent.{ExecutionContext, Future}
-
 import org.scalatest.BeforeAndAfterAll
 import org.scalatest.concurrent.{Eventually, ScalaFutures}
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.time.{Millis, Seconds, Span}
 import org.scalatest.wordspec.AnyWordSpecLike
-
 import akka.actor.testkit.typed.scaladsl.{ScalaTestWithActorTestKit, TestProbe}
 import akka.actor.typed.{ActorRef, ActorSystem, Terminated}
 import akka.stream.scaladsl.Sink
 import akka.stream.{Materializer, SystemMaterializer}
 import net.openhft.chronicle.wire.{WireIn, WireOut}
+
+import java.util.UUID
 
 class AkkaChronicleDataSourceSpec
     extends ScalaTestWithActorTestKit
@@ -89,6 +88,7 @@ class AkkaChronicleDataSourceSpec
       val queueDir = createTempDir("test-single-consumer-")
 
       val dataSource = new AkkaChronicleDataSource[Int](
+        UUID.randomUUID(),
         task = new RangeProducingTask(1, 10),
         queueDir = queueDir,
         codec = intCodec,
@@ -110,6 +110,7 @@ class AkkaChronicleDataSourceSpec
       val queueDir = createTempDir("test-multi-consumer-")
 
       val dataSource = new AkkaChronicleDataSource[Int](
+        UUID.randomUUID(),
         new RangeProducingTask(1, 5),
         queueDir,
         intCodec,
@@ -142,6 +143,7 @@ class AkkaChronicleDataSourceSpec
       val queueDir = createTempDir("test-late-consumer-")
 
       val dataSource = new AkkaChronicleDataSource[Int](
+        UUID.randomUUID(),
         new RangeProducingTask(1, 5),
         queueDir,
         intCodec,
@@ -177,6 +179,7 @@ class AkkaChronicleDataSourceSpec
       val queueDir = createTempDir("test-grace-stop-")
 
       val dataSource = new AkkaChronicleDataSource[Int](
+        UUID.randomUUID(),
         new RangeProducingTask(1, 999999),
         queueDir,
         intCodec,
@@ -204,6 +207,7 @@ class AkkaChronicleDataSourceSpec
       val queueDir = createTempDir("test-eof-")
 
       val dataSource = new AkkaChronicleDataSource[Int](
+        UUID.randomUUID(),
         new RangeProducingTask(1, 3),
         queueDir,
         intCodec,
@@ -244,6 +248,7 @@ class AkkaChronicleDataSourceSpec
       }
 
       val dataSource = new AkkaChronicleDataSource[Int](
+        UUID.randomUUID(),
         new FaultyTask,
         queueDir,
         intCodec,
@@ -271,6 +276,7 @@ class AkkaChronicleDataSourceSpec
       val queueDir = createTempDir("test-voluntary-stop-")
 
       val dataSource = new AkkaChronicleDataSource[Int](
+        UUID.randomUUID(),
         new RangeProducingTask(1, 1000000),
         queueDir,
         intCodec,
@@ -288,6 +294,7 @@ class AkkaChronicleDataSourceSpec
       val queueDir = createTempDir("test-partial-consumption-")
 
       val dataSource = new AkkaChronicleDataSource[Int](
+        UUID.randomUUID(),
         new RangeProducingTask(1, 5),
         queueDir,
         intCodec,
@@ -316,6 +323,7 @@ class AkkaChronicleDataSourceSpec
       val queueDir = createTempDir("test-no-consumers-")
 
       val dataSource = new AkkaChronicleDataSource[Int](
+        UUID.randomUUID(),
         new RangeProducingTask(1, 1000000),
         queueDir,
         intCodec,
@@ -338,6 +346,7 @@ class AkkaChronicleDataSourceSpec
       val queueDir = createTempDir("test-eof-backlog-")
 
       val dataSource = new AkkaChronicleDataSource[Int](
+        UUID.randomUUID(),
         new RangeProducingTask(1, 2),
         queueDir,
         intCodec,
@@ -370,6 +379,7 @@ class AkkaChronicleDataSourceSpec
       }
 
       val dataSource = new AkkaChronicleDataSource[Int](
+        UUID.randomUUID(),
         new ImmediateErrorTask,
         queueDir,
         intCodec,
@@ -387,6 +397,7 @@ class AkkaChronicleDataSourceSpec
       val queueDir = createTempDir("test-forced-shutdown-")
 
       val dataSource = new AkkaChronicleDataSource[Int](
+        UUID.randomUUID(),
         new RangeProducingTask(1, 100),
         queueDir,
         intCodec,

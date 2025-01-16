@@ -18,6 +18,6 @@ import com.rawlabs.das.server.DASServer
 
 class DASMockTest extends AnyFunSuite {
 
-  ignore("Run the main code with mock services")(DASServer.main(Array()))
+  test("Run the main code with mock services")(DASServer.main(Array()))
 
 }
