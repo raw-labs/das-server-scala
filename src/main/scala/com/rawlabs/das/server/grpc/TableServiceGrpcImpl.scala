@@ -12,11 +12,14 @@
 
 package com.rawlabs.das.server.grpc
 
-import akka.NotUsed
-import akka.actor.typed.scaladsl.AskPattern.Askable
-import akka.actor.typed.{ActorRef, Scheduler}
-import akka.stream.scaladsl.{Flow, Keep, Sink, Source}
-import akka.stream.{KillSwitches, Materializer, UniqueKillSwitch}
+import java.time.Instant
+
+import scala.concurrent.ExecutionContext
+import scala.concurrent.duration.{DurationInt, FiniteDuration}
+import scala.jdk.CollectionConverters._
+import scala.jdk.OptionConverters._
+import scala.util.{Failure, Success}
+
 import com.rawlabs.das.sdk.DASExecuteResult
 import com.rawlabs.das.server.cache.catalog.CacheDefinition
 import com.rawlabs.das.server.cache.iterator.QueryProcessorFlow
@@ -27,15 +30,14 @@ import com.rawlabs.das.server.manager.DASSdkManager
 import com.rawlabs.protocol.das.v1.services._
 import com.rawlabs.protocol.das.v1.tables._
 import com.typesafe.scalalogging.StrictLogging
+
+import akka.NotUsed
+import akka.actor.typed.scaladsl.AskPattern.Askable
+import akka.actor.typed.{ActorRef, Scheduler}
+import akka.stream.scaladsl.{Flow, Keep, Sink, Source}
+import akka.stream.{KillSwitches, Materializer, UniqueKillSwitch}
 import io.grpc.stub.{ServerCallStreamObserver, StreamObserver}
 import io.grpc.{Status, StatusRuntimeException}
-
-import java.time.Instant
-import scala.concurrent.ExecutionContext
-import scala.concurrent.duration.{DurationInt, FiniteDuration}
-import scala.jdk.CollectionConverters._
-import scala.jdk.OptionConverters._
-import scala.util.{Failure, Success}
 
 /**
  * Implementation of the gRPC service for handling table-related operations.

@@ -12,21 +12,23 @@
 
 package com.rawlabs.das.server.cache.manager
 
+import java.io.File
+import java.util.UUID
+
+import scala.concurrent.Future
+import scala.concurrent.duration._
+import scala.util.control.NonFatal
+
+import com.rawlabs.das.server.cache.catalog._
+import com.rawlabs.das.server.cache.queue._
+import com.rawlabs.protocol.das.v1.query.Qual
+
 import akka.NotUsed
 import akka.actor.typed._
 import akka.actor.typed.scaladsl.AskPattern._
 import akka.actor.typed.scaladsl._
 import akka.stream.scaladsl.{Flow, Source}
 import akka.util.Timeout
-import com.rawlabs.das.server.cache.catalog._
-import com.rawlabs.das.server.cache.queue._
-import com.rawlabs.protocol.das.v1.query.Qual
-
-import java.io.File
-import java.util.UUID
-import scala.concurrent.Future
-import scala.concurrent.duration._
-import scala.util.control.NonFatal
 
 /**
  * A typed “CacheManager” actor for a specific data type T. It:

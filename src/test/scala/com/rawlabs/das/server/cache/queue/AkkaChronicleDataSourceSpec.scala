@@ -14,20 +14,22 @@ package com.rawlabs.das.server.cache.queue
 
 import java.io.File
 import java.nio.file.{Files, Path}
+import java.util.UUID
+
 import scala.concurrent.duration._
 import scala.concurrent.{ExecutionContext, Future}
+
 import org.scalatest.BeforeAndAfterAll
 import org.scalatest.concurrent.{Eventually, ScalaFutures}
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.time.{Millis, Seconds, Span}
 import org.scalatest.wordspec.AnyWordSpecLike
+
 import akka.actor.testkit.typed.scaladsl.{ScalaTestWithActorTestKit, TestProbe}
 import akka.actor.typed.{ActorRef, ActorSystem, Terminated}
 import akka.stream.scaladsl.Sink
 import akka.stream.{Materializer, SystemMaterializer}
 import net.openhft.chronicle.wire.{WireIn, WireOut}
-
-import java.util.UUID
 
 class AkkaChronicleDataSourceSpec
     extends ScalaTestWithActorTestKit

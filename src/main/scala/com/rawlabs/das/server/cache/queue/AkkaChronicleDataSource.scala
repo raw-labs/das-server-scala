@@ -12,6 +12,14 @@
 
 package com.rawlabs.das.server.cache.queue
 
+import java.io.{Closeable, File}
+import java.util.UUID
+import java.util.concurrent.atomic.AtomicLong
+
+import scala.concurrent.duration._
+import scala.concurrent.{ExecutionContext, Future}
+import scala.util.control.NonFatal
+
 import akka.actor.typed._
 import akka.actor.typed.scaladsl.AskPattern._
 import akka.actor.typed.scaladsl._
@@ -20,13 +28,6 @@ import akka.stream.scaladsl.Source
 import akka.stream.stage._
 import akka.util.Timeout
 import net.openhft.chronicle.queue.{ChronicleQueue, ExcerptAppender, ExcerptTailer}
-
-import java.io.{Closeable, File}
-import java.util.UUID
-import java.util.concurrent.atomic.AtomicLong
-import scala.concurrent.duration._
-import scala.concurrent.{ExecutionContext, Future}
-import scala.util.control.NonFatal
 
 /**
  * REQUIREMENTS & DESIGN NOTES

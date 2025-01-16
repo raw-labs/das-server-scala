@@ -12,24 +12,31 @@
 
 package com.rawlabs.das.server
 
-import akka.actor.typed.scaladsl.Behaviors
-import akka.actor.typed.{ActorRef, ActorSystem, Scheduler}
-import akka.stream.Materializer
+import java.io.File
+
+import scala.concurrent.ExecutionContext
+import scala.jdk.DurationConverters.JavaDurationOps
+
 import com.rawlabs.das.sdk.DASSettings
 import com.rawlabs.das.server.cache.catalog.{CacheCatalog, CacheDefinition, CacheEntry, SqliteCacheCatalog}
 import com.rawlabs.das.server.cache.iterator.{CacheSelector, QualEvaluator}
 import com.rawlabs.das.server.cache.manager.CacheManager
-import com.rawlabs.das.server.grpc.{HealthCheckServiceGrpcImpl, RegistrationServiceGrpcImpl, TableServiceGrpcImpl, ThrowableHandlingInterceptor}
+import com.rawlabs.das.server.grpc.{
+  HealthCheckServiceGrpcImpl,
+  RegistrationServiceGrpcImpl,
+  TableServiceGrpcImpl,
+  ThrowableHandlingInterceptor
+}
 import com.rawlabs.das.server.manager.DASSdkManager
 import com.rawlabs.das.server.webui.{DASWebUIServer, DebugAppService}
 import com.rawlabs.protocol.das.v1.query.Qual
 import com.rawlabs.protocol.das.v1.services.{HealthCheckServiceGrpc, RegistrationServiceGrpc, TablesServiceGrpc}
 import com.rawlabs.protocol.das.v1.tables.Row
-import io.grpc.{Server, ServerBuilder}
 
-import java.io.File
-import scala.concurrent.ExecutionContext
-import scala.jdk.DurationConverters.JavaDurationOps
+import akka.actor.typed.scaladsl.Behaviors
+import akka.actor.typed.{ActorRef, ActorSystem, Scheduler}
+import akka.stream.Materializer
+import io.grpc.{Server, ServerBuilder}
 
 class DASServer(cacheManager: ActorRef[CacheManager.Command[Row]])(
     implicit settings: DASSettings,
