@@ -12,10 +12,11 @@
 
 package com.rawlabs.das.server.grpc
 
-import scala.concurrent.ExecutionContext
-import scala.jdk.CollectionConverters._
-import scala.jdk.OptionConverters._
-import scala.util.{Failure, Success}
+import akka.NotUsed
+import akka.actor.typed.scaladsl.AskPattern.Askable
+import akka.actor.typed.{ActorRef, Scheduler}
+import akka.stream.scaladsl.{Flow, Keep, Sink, Source}
+import akka.stream.{KillSwitches, Materializer, UniqueKillSwitch}
 import com.rawlabs.das.sdk.DASExecuteResult
 import com.rawlabs.das.server.cache.catalog.CacheDefinition
 import com.rawlabs.das.server.cache.iterator.QueryProcessorFlow
@@ -26,13 +27,15 @@ import com.rawlabs.das.server.manager.DASSdkManager
 import com.rawlabs.protocol.das.v1.services._
 import com.rawlabs.protocol.das.v1.tables._
 import com.typesafe.scalalogging.StrictLogging
-import akka.NotUsed
-import akka.actor.typed.scaladsl.AskPattern.Askable
-import akka.actor.typed.{ActorRef, Scheduler}
-import akka.stream.{KillSwitches, Materializer, UniqueKillSwitch}
-import akka.stream.scaladsl.{Flow, Keep, Sink, Source}
 import io.grpc.stub.{ServerCallStreamObserver, StreamObserver}
 import io.grpc.{Status, StatusRuntimeException}
+
+import java.time.Instant
+import scala.concurrent.ExecutionContext
+import scala.concurrent.duration.{DurationInt, FiniteDuration}
+import scala.jdk.CollectionConverters._
+import scala.jdk.OptionConverters._
+import scala.util.{Failure, Success}
 
 /**
  * Implementation of the gRPC service for handling table-related operations.
@@ -43,7 +46,8 @@ import io.grpc.{Status, StatusRuntimeException}
 class TableServiceGrpcImpl(
     provider: DASSdkManager,
     cacheManager: ActorRef[CacheManager.Command[Row]],
-    maxChunkSize: Int = 1000)(
+    maxChunkSize: Int = 1000,
+    defaultMaxCacheAge: FiniteDuration = 0.seconds)(
     implicit val ec: ExecutionContext,
     implicit val materializer: Materializer,
     implicit val scheduler: Scheduler)
@@ -219,6 +223,7 @@ class TableServiceGrpcImpl(
         val quals = request.getQuery.getQualsList.asScala.toSeq
         val columns = request.getQuery.getColumnsList.asScala.toSeq
         val sortKeys = request.getQuery.getSortKeysList.asScala.toSeq
+        val maxCacheAge = defaultMaxCacheAge // request.getQuery.getMaxCacheAge
 
         // Build a data-producing task for the table, if the cache manager needs to create a new cache
         val makeTask = () =>
@@ -252,7 +257,7 @@ class TableServiceGrpcImpl(
                 quals = quals,
                 columns = columns,
                 sortKeys = sortKeys),
-              minCreationDate = None,
+              minCreationDate = Some(Instant.now().minusMillis(maxCacheAge.toMillis)),
               makeTask = makeTask,
               codec = new RowCodec,
               replyTo = replyTo))
