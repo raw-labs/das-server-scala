@@ -12,28 +12,23 @@
 
 package com.rawlabs.das.server
 
-import java.io.File
-import scala.concurrent.ExecutionContext
-import scala.concurrent.duration.{DurationInt, FiniteDuration}
+import akka.actor.typed.scaladsl.Behaviors
+import akka.actor.typed.{ActorRef, ActorSystem, Scheduler}
+import akka.stream.Materializer
 import com.rawlabs.das.sdk.DASSettings
 import com.rawlabs.das.server.cache.catalog.{CacheCatalog, CacheDefinition, CacheEntry, SqliteCacheCatalog}
 import com.rawlabs.das.server.cache.iterator.{CacheSelector, QualEvaluator}
 import com.rawlabs.das.server.cache.manager.CacheManager
-import com.rawlabs.das.server.cache.queue.Codec
 import com.rawlabs.das.server.grpc.{HealthCheckServiceGrpcImpl, RegistrationServiceGrpcImpl, TableServiceGrpcImpl, ThrowableHandlingInterceptor}
 import com.rawlabs.das.server.manager.DASSdkManager
 import com.rawlabs.das.server.webui.{DASWebUIServer, DebugAppService}
 import com.rawlabs.protocol.das.v1.query.Qual
-import com.rawlabs.protocol.das.v1.services.HealthCheckServiceGrpc
-import com.rawlabs.protocol.das.v1.services.RegistrationServiceGrpc
-import com.rawlabs.protocol.das.v1.services.TablesServiceGrpc
+import com.rawlabs.protocol.das.v1.services.{HealthCheckServiceGrpc, RegistrationServiceGrpc, TablesServiceGrpc}
 import com.rawlabs.protocol.das.v1.tables.Row
-import akka.actor.typed.scaladsl.Behaviors
-import akka.actor.typed.{ActorRef, ActorSystem, Scheduler}
-import akka.stream.Materializer
-import io.grpc.Server
-import io.grpc.ServerBuilder
+import io.grpc.{Server, ServerBuilder}
 
+import java.io.File
+import scala.concurrent.ExecutionContext
 import scala.jdk.DurationConverters.JavaDurationOps
 
 class DASServer(cacheManager: ActorRef[CacheManager.Command[Row]])(
@@ -45,14 +40,18 @@ class DASServer(cacheManager: ActorRef[CacheManager.Command[Row]])(
   private[this] var server: Server = _
 
   private val dasSdkManager = new DASSdkManager
-//  private val cache = new DASResultCache()
 
   private val healthCheckService = HealthCheckServiceGrpc
     .bindService(new HealthCheckServiceGrpcImpl)
   private val registrationService = RegistrationServiceGrpc
     .bindService(new RegistrationServiceGrpcImpl(dasSdkManager))
-  private val tablesService = TablesServiceGrpc
-    .bindService(new TableServiceGrpcImpl(dasSdkManager, cacheManager))
+
+  private val tablesService = {
+    val defaultCacheAge = settings.getDuration("das.server.max-cache-age").toScala
+    val maxChunkSize = settings.getInt("das.server.max-chunk-size")
+    TablesServiceGrpc
+      .bindService(new TableServiceGrpcImpl(dasSdkManager, cacheManager, maxChunkSize, defaultCacheAge))
+  }
 //  private val functionsService - FunctionsServiceGrpc.bindService(new FunctionsServiceGrpcImpl(dasSdkManager))
 
   def start(port: Int): Unit =
