@@ -315,6 +315,50 @@ class TableServiceGrpcImpl(
     }
   }
 
+  private def subdivideByByteSize(maxBatchBytes: Long): Flow[Seq[Row], Seq[Row], NotUsed] =
+    Flow[Seq[Row]].mapConcat { chunk =>
+      // chunk => up to n elements or arrived after d time
+      // Now we subdivide it if total bytes exceed 'maxBatchBytes'
+      val subBatches = buildSubBatches(chunk, maxBatchBytes)
+      subBatches
+    }
+
+  /**
+   * Splits a single List[Row] into sub-lists, each not exceeding 'maxBatchBytes'. (This is a simple example; you could
+   * do a more advanced approach.)
+   */
+  private def buildSubBatches(rows: Seq[Row], maxBytes: Long): Seq[Seq[Row]] = {
+    val result = scala.collection.mutable.ListBuffer.empty[List[Row]]
+    val buffer = scala.collection.mutable.ArrayBuffer.empty[Row]
+    var currentSize = 0L
+
+    def flushBuffer(): Unit = {
+      if (buffer.nonEmpty) {
+        result += buffer.toList
+        buffer.clear()
+        currentSize = 0
+      }
+    }
+
+    rows.foreach { row =>
+      val size = row.getSerializedSize.toLong
+      if (size > maxBytes) {
+        // single row too big => you might fail or handle differently
+        throw new IllegalArgumentException(s"A single row of size $size bytes > maxBatchBytes=$maxBytes")
+      }
+      // if adding this row exceeds the limit => emit current buffer first
+      if (currentSize + size > maxBytes) {
+        flushBuffer()
+      }
+      buffer += row
+      currentSize += size
+    }
+    // after last row
+    flushBuffer()
+
+    result.toList
+  }
+
   /**
    * Runs the final Source[Row, _] in chunks of size `maxChunkSize`, sending them to gRPC. Cancels if gRPC context is
    * cancelled.
@@ -330,7 +374,9 @@ class TableServiceGrpcImpl(
 
     // Build a stream that splits the rows by the client's max byte size
     val rowBatches = source
-      .via(new SizeBasedBatcher(maxBatchCount = maxChunkSize, maxBatchSizeBytes = clientMaxBytes))
+      .groupedWithin(maxChunkSize, 500.millis)
+      .via(subdivideByByteSize(clientMaxBytes))
+//      .via(new SizeBasedBatcher(maxBatchCount = maxChunkSize, maxBatchSizeBytes = clientMaxBytes))
       .map { batchOfRows =>
         Rows
           .newBuilder()
