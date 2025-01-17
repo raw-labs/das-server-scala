@@ -413,7 +413,8 @@ class TableServiceGrpcImpl(
         logger.error(s"Error during streaming for planID=${request.getPlanId}.", ex)
         maybeServerCallObs match {
           case Some(sco) if !sco.isCancelled =>
-            sco.onError(new StatusRuntimeException(Status.INTERNAL.withDescription(s"Error during streaming: ${ex.getMessage}")))
+            sco.onError(
+              new StatusRuntimeException(Status.INTERNAL.withDescription(s"Error during streaming: ${ex.getMessage}")))
           case _ =>
             responseObserver.onError(
               new StatusRuntimeException(Status.INTERNAL.withDescription(s"Error during streaming: ${ex.getMessage}")))
