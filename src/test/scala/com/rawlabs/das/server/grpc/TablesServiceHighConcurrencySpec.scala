@@ -14,11 +14,11 @@ package com.rawlabs.das.server.grpc
 
 import java.nio.file.Files
 import java.util.UUID
-import java.util.concurrent.{Executors, TimeUnit}
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.{Callable, Executors, TimeUnit}
 
 import scala.concurrent.duration._
-import scala.concurrent.{Await, ExecutionContext, Future}
-import scala.jdk.CollectionConverters._
+import scala.concurrent.{Await, ExecutionContext, Future, Promise}
 import scala.util.{Random, Try}
 
 import org.scalatest.BeforeAndAfterAll
@@ -44,7 +44,8 @@ import akka.actor.typed.{ActorRef, ActorSystem, Scheduler}
 import akka.stream.{Materializer, SystemMaterializer}
 import akka.util.Timeout
 import io.grpc.inprocess.{InProcessChannelBuilder, InProcessServerBuilder}
-import io.grpc.{ManagedChannel, Server, StatusRuntimeException}
+import io.grpc.stub.StreamObserver
+import io.grpc.{Context, ManagedChannel, Server}
 
 /**
  * A high-concurrency test suite that exercises parallel calls to "executeTable" with overlapping qualifiers, partial
@@ -127,7 +128,7 @@ class TablesServiceHighConcurrencySpec
         satisfiesAllQualsFn),
       "cacheManager-highConcurrency")
 
-  private val serviceImpl = new TableServiceGrpcImpl(dasSdkManager, cacheManager, maxChunkSize = 1)
+  private val serviceImpl = new TableServiceGrpcImpl(dasSdkManager, cacheManager)
 
   // ----------------------------------------------------------------
   // 4) Setup & Teardown
@@ -213,7 +214,7 @@ class TablesServiceHighConcurrencySpec
             .setDasId(dasId)
             .setTableId(TableId.newBuilder().setName("small"))
             .setPlanId(planId)
-            .setQuery(Query.newBuilder().addQuals(randomQ).addColumns("column1"))
+            .setQuery(Query.newBuilder().addQuals(randomQ).addColumns("column1")).setMaxBatchSizeBytes(1024 * 1024)
             .build()
 
           val it = stub.executeTable(request)
@@ -319,7 +320,7 @@ class TablesServiceHighConcurrencySpec
             .setDasId(dasId)
             .setTableId(TableId.newBuilder().setName("slow")) // or "big"
             .setPlanId(planId)
-            .setQuery(Query.newBuilder().addColumns("column1"))
+            .setQuery(Query.newBuilder().addColumns("column1")).setMaxBatchSizeBytes(1024 * 1024)
             .build()
 
           val it = stub.executeTable(req)

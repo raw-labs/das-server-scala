@@ -54,10 +54,9 @@ class DASServer(cacheManager: ActorRef[CacheManager.Command[Row]])(
     .bindService(new RegistrationServiceGrpcImpl(dasSdkManager))
 
   private val tablesService = {
-    val defaultCacheAge = settings.getDuration("das.server.max-cache-age").toScala
-    val maxChunkSize = settings.getInt("das.server.max-chunk-size")
+    val batchLatency = settings.getDuration("das.server.batch-latency").toScala
     TablesServiceGrpc
-      .bindService(new TableServiceGrpcImpl(dasSdkManager, cacheManager, maxChunkSize, defaultCacheAge))
+      .bindService(new TableServiceGrpcImpl(dasSdkManager, cacheManager, batchLatency))
   }
 //  private val functionsService - FunctionsServiceGrpc.bindService(new FunctionsServiceGrpcImpl(dasSdkManager))
 

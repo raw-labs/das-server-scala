@@ -48,8 +48,7 @@ import io.grpc.{Status, StatusRuntimeException}
 class TableServiceGrpcImpl(
     provider: DASSdkManager,
     cacheManager: ActorRef[CacheManager.Command[Row]],
-    maxChunkSize: Int = 1000,
-    defaultMaxCacheAge: FiniteDuration = 0.seconds)(
+    batchLatency: FiniteDuration = 500.millis)(
     implicit val ec: ExecutionContext,
     implicit val materializer: Materializer,
     implicit val scheduler: Scheduler)
@@ -225,7 +224,8 @@ class TableServiceGrpcImpl(
         val quals = request.getQuery.getQualsList.asScala.toSeq
         val columns = request.getQuery.getColumnsList.asScala.toSeq
         val sortKeys = request.getQuery.getSortKeysList.asScala.toSeq
-        val maxCacheAge = defaultMaxCacheAge // request.getQuery.getMaxCacheAge
+        val maxCacheAge = request.getMaxCacheAgeSeconds.seconds
+        assert(maxCacheAge >= 0.seconds, "maxCacheAge must be non-negative")
 
         // Build a data-producing task for the table, if the cache manager needs to create a new cache
         val makeTask = () =>
@@ -370,13 +370,13 @@ class TableServiceGrpcImpl(
       maybeServerCallObs: Option[ServerCallStreamObserver[Rows]]) = {
 
     // Define the maximum bytes per chunk
-    val clientMaxBytes = /* request.getMaxBytes */ 4194304 * 3 / 4
+    val clientMaxBytes = request.getMaxBatchSizeBytes * 3 / 4;
+    assert(clientMaxBytes > 0, "clientMaxBytes must be positive")
 
     // Build a stream that splits the rows by the client's max byte size
     val rowBatches = source
-      .groupedWithin(maxChunkSize, 500.millis)
-      .via(subdivideByByteSize(clientMaxBytes))
-//      .via(new SizeBasedBatcher(maxBatchCount = maxChunkSize, maxBatchSizeBytes = clientMaxBytes))
+      // Group rows by size (but also by time if source is slow). Assume a minimum size of 8 bytes per row.
+      .groupedWeightedWithin(clientMaxBytes, batchLatency)(row => Math.max(row.getSerializedSize.toLong, 8))
       .map { batchOfRows =>
         Rows
           .newBuilder()
