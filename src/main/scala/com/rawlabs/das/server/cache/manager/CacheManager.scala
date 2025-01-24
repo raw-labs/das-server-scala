@@ -29,6 +29,7 @@ import akka.actor.typed.scaladsl.AskPattern._
 import akka.actor.typed.scaladsl._
 import akka.stream.scaladsl.{Flow, Source}
 import akka.util.Timeout
+import net.openhft.chronicle.queue.ExcerptTailer
 
 /**
  * A typed “CacheManager” actor for a specific data type T. It:
@@ -395,10 +396,9 @@ private class CacheManagerBehavior[T](
     dsRef
       .ask[ChronicleDataSource.SubscribeResponse](replyTo => ChronicleDataSource.RequestSubscribe(replyTo))
       .map {
-        case ChronicleDataSource.Subscribed(consumerId) =>
+        case ChronicleDataSource.Subscribed(consumerId, tailer) =>
           val dir = new File(baseDirectory, cacheId.toString)
-          val tailerStorage = new ChronicleStorage[T](dir, codec)
-          val stage = new ChronicleSourceGraphStage[T](dsRef, codec, tailerStorage, consumerId)
+          val stage = new ChronicleSourceGraphStage[T](dsRef, codec, tailer, consumerId)
           Some(Source.fromGraph(stage))
 
         case ChronicleDataSource.AlreadyStopped =>

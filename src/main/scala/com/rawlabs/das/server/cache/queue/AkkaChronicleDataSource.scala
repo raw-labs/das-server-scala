@@ -16,6 +16,7 @@ import java.io.{Closeable, File}
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
 
+import scala.collection.mutable
 import scala.concurrent.duration._
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.control.NonFatal
@@ -247,7 +248,7 @@ object ChronicleDataSource {
 
   // Subscribe response messages
   sealed trait SubscribeResponse
-  final case class Subscribed(consumerId: Long) extends SubscribeResponse
+  final case class Subscribed(consumerId: Long, tailer: ExcerptTailer) extends SubscribeResponse
   final case object AlreadyStopped extends SubscribeResponse
 
   // Producer states
@@ -304,6 +305,7 @@ private class ChronicleDataSourceBehavior[T](
   // mutable state
   private var state: ProducerState = Running
   private var iterOpt: Option[CloseableIterator[T]] = None
+  private val tailerMap = mutable.Map.empty[Long, ExcerptTailer]
   private var activeConsumers: Int = 0
   private val nextConsumerId = new AtomicLong(0L)
   private var graceTimerActive = false
@@ -325,6 +327,10 @@ private class ChronicleDataSourceBehavior[T](
         case ConsumerTerminated(cid) =>
           activeConsumers -= 1
           log.info(s"Consumer $cid terminated; activeConsumers=$activeConsumers")
+          tailerMap.remove(cid).foreach { tailer =>
+            log.debug(s"Closing tailer for consumer $cid")
+            tailer.close()
+          }
           checkGracePeriod()
           Behaviors.same
 
@@ -360,14 +366,20 @@ private class ChronicleDataSourceBehavior[T](
         activeConsumers += 1
         cancelGraceTimer()
         val cid = nextConsumerId.getAndIncrement()
-        replyTo ! Subscribed(cid)
+        // Create the tailer for this new consumer
+        val tailer = storage.newTailerToStart()
+        tailerMap(cid) = tailer
+        replyTo ! Subscribed(cid, tailer)
 
       case Eof =>
         // Let them read backlog
         activeConsumers += 1
         cancelGraceTimer()
         val cid = nextConsumerId.getAndIncrement()
-        replyTo ! Subscribed(cid)
+        // Create the tailer for this new consumer
+        val tailer = storage.newTailerToStart()
+        tailerMap(cid) = tailer
+        replyTo ! Subscribed(cid, tailer)
 
       case ErrorState | VoluntaryStop =>
         replyTo ! AlreadyStopped
@@ -461,7 +473,7 @@ private class ChronicleDataSourceBehavior[T](
 class ChronicleSourceGraphStage[T](
     actor: ActorRef[ChronicleDataSource.ChronicleDataSourceCommand],
     codec: Codec[T],
-    storage: ChronicleStorage[T],
+    tailer: ExcerptTailer,
     consumerId: Long,
     pollInterval: FiniteDuration = 20.millis)(implicit ec: ExecutionContext)
     extends GraphStage[SourceShape[T]] {
@@ -474,12 +486,7 @@ class ChronicleSourceGraphStage[T](
   override def createLogic(attrs: Attributes): GraphStageLogic =
     new TimerGraphStageLogic(shape) with OutHandler {
 
-      private var tailer: ExcerptTailer = _
       private var completed: Boolean = false
-
-      override def preStart(): Unit = {
-        tailer = storage.newTailerToStart()
-      }
 
       private def tryReadWhileAvailable(): Unit = {
         while (!completed && isAvailable(out)) {
@@ -544,7 +551,7 @@ class ChronicleSourceGraphStage[T](
       override def postStop(): Unit = {
         // Notify the typed producer
         actor ! ChronicleDataSource.ConsumerTerminated(consumerId)
-        tailer.close()
+        // We don't call tailer.close() here because we don't own it.
         super.postStop()
       }
 
@@ -585,8 +592,8 @@ class AkkaChronicleDataSource[T](
     producerRef
       .ask[SubscribeResponse](replyTo => RequestSubscribe(replyTo))
       .map {
-        case Subscribed(cid) =>
-          val stage = new ChronicleSourceGraphStage[T](producerRef, codec, storage, cid)
+        case Subscribed(cid, tailer) =>
+          val stage = new ChronicleSourceGraphStage[T](producerRef, codec, tailer, cid)
           Some(Source.fromGraph(stage))
 
         case AlreadyStopped =>

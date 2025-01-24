@@ -25,6 +25,7 @@ import com.rawlabs.das.server.cache.catalog.CacheDefinition
 import com.rawlabs.das.server.cache.iterator.QueryProcessorFlow
 import com.rawlabs.das.server.cache.manager.CacheManager
 import com.rawlabs.das.server.cache.manager.CacheManager.{GetIterator, WrappedGetIterator}
+import com.rawlabs.das.server.cache.queue.ChronicleDataSource.ConsumerTerminated
 import com.rawlabs.das.server.cache.queue.{CloseableIterator, DataProducingTask}
 import com.rawlabs.das.server.manager.DASSdkManager
 import com.rawlabs.protocol.das.v1.services._
