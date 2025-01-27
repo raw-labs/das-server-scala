@@ -275,7 +275,8 @@ class TablesServiceDASMockTestSpec extends AnyWordSpec with Matchers with Before
         .setDasId(DASId.newBuilder().setId("1"))
         .setTableId(TableId.newBuilder().setName("small"))
         .setPlanId("plan-small-1")
-        .setQuery(Query.newBuilder().addColumns("column1")).setMaxBatchSizeBytes(1024 * 1024)
+        .setQuery(Query.newBuilder().addColumns("column1"))
+        .setMaxBatchSizeBytes(1024 * 1024)
         .build()
 
       val it = blockingStub.executeTable(req)
@@ -290,7 +291,8 @@ class TablesServiceDASMockTestSpec extends AnyWordSpec with Matchers with Before
         .setDasId(DASId.newBuilder().setId("1"))
         .setTableId(TableId.newBuilder().setName("big"))
         .setPlanId("plan-big-1")
-        .setQuery(Query.newBuilder().addColumns("column2")).setMaxBatchSizeBytes(1024 * 1024)
+        .setQuery(Query.newBuilder().addColumns("column2"))
+        .setMaxBatchSizeBytes(1024 * 1024)
         .build()
 
       val iter = blockingStub.executeTable(req)
@@ -310,7 +312,8 @@ class TablesServiceDASMockTestSpec extends AnyWordSpec with Matchers with Before
         .setDasId(DASId.newBuilder().setId("1"))
         .setTableId(TableId.newBuilder().setName("all_types"))
         .setPlanId("plan-alltypes-1")
-        .setQuery(Query.newBuilder().addColumns("int_col").addColumns("string_col")).setMaxBatchSizeBytes(1024 * 1024)
+        .setQuery(Query.newBuilder().addColumns("int_col").addColumns("string_col"))
+        .setMaxBatchSizeBytes(1024 * 1024)
         .build()
 
       val rows = collectRows(blockingStub.executeTable(req))
@@ -325,7 +328,8 @@ class TablesServiceDASMockTestSpec extends AnyWordSpec with Matchers with Before
         .setDasId(DASId.newBuilder().setId("1"))
         .setTableId(TableId.newBuilder().setName("in_memory"))
         .setPlanId("plan-inmem-1")
-        .setQuery(Query.newBuilder().addColumns("column1")).setMaxBatchSizeBytes(1024 * 1024)
+        .setQuery(Query.newBuilder().addColumns("column1"))
+        .setMaxBatchSizeBytes(1024 * 1024)
         .build()
 
       val rows = collectRows(blockingStub.executeTable(req))
@@ -341,7 +345,8 @@ class TablesServiceDASMockTestSpec extends AnyWordSpec with Matchers with Before
         .setDasId(DASId.newBuilder().setId("1"))
         .setTableId(TableId.newBuilder().setName("slow"))
         .setPlanId("plan-slow-1")
-        .setQuery(Query.newBuilder().addColumns("column1")).setMaxBatchSizeBytes(1024 * 1024)
+        .setQuery(Query.newBuilder().addColumns("column1"))
+        .setMaxBatchSizeBytes(1024 * 1024)
         .build()
 
       val rows = collectRows(blockingStub.executeTable(req))
@@ -359,7 +364,8 @@ class TablesServiceDASMockTestSpec extends AnyWordSpec with Matchers with Before
         .setDasId(DASId.newBuilder().setId("1"))
         .setTableId(TableId.newBuilder().setName("broken"))
         .setPlanId("plan-broken-1")
-        .setQuery(Query.newBuilder().addColumns("column1")).setMaxBatchSizeBytes(1024 * 1024)
+        .setQuery(Query.newBuilder().addColumns("column1"))
+        .setMaxBatchSizeBytes(1024 * 1024)
         .build()
 
       val ex = intercept[StatusRuntimeException] {
@@ -383,7 +389,8 @@ class TablesServiceDASMockTestSpec extends AnyWordSpec with Matchers with Before
         .setDasId(DASId.newBuilder().setId("1"))
         .setTableId(TableId.newBuilder().setName("slow"))
         .setPlanId("plan-slow-reuse-1")
-        .setQuery(Query.newBuilder().addColumns("column1")).setMaxBatchSizeBytes(1024 * 1024)
+        .setQuery(Query.newBuilder().addColumns("column1"))
+        .setMaxBatchSizeBytes(1024 * 1024)
         .build()
 
       // read 3 rows => then stop
@@ -417,7 +424,8 @@ class TablesServiceDASMockTestSpec extends AnyWordSpec with Matchers with Before
             .newBuilder()
             .addQuals(intQualProto("column1", Operator.GREATER_THAN, 10)) // column1 > 10
             .addColumns("column1") // we only need column1 in this test
-            ).setMaxBatchSizeBytes(1024 * 1024)
+        )
+        .setMaxBatchSizeBytes(1024 * 1024)
         .build()
 
       // Read all matching rows => should get rows 11..100 => 90 total.
@@ -444,8 +452,8 @@ class TablesServiceDASMockTestSpec extends AnyWordSpec with Matchers with Before
           Query
             .newBuilder()
             .addQuals(intQualProto("column1", Operator.GREATER_THAN, 50)) // column1 > 50
-            .addColumns("column1")
-            ).setMaxBatchSizeBytes(1024 * 1024)
+            .addColumns("column1"))
+        .setMaxBatchSizeBytes(1024 * 1024)
         .build()
 
       val rows2 = collectRows(blockingStub.executeTable(req2))
@@ -463,8 +471,8 @@ class TablesServiceDASMockTestSpec extends AnyWordSpec with Matchers with Before
             .newBuilder()
             .addQuals(intQualProto("column1", Operator.GREATER_THAN, 10)) // column1 > 10
             .addQuals(stringQualProto("column2", Operator.EQUALS, "row_tmp_5"))
-            .addColumns("column1")
-            ).setMaxBatchSizeBytes(1024 * 1024)
+            .addColumns("column1"))
+        .setMaxBatchSizeBytes(1024 * 1024)
         .build()
 
       val rows3 = collectRows(blockingStub.executeTable(req3))

@@ -214,7 +214,8 @@ class TablesServiceHighConcurrencySpec
             .setDasId(dasId)
             .setTableId(TableId.newBuilder().setName("small"))
             .setPlanId(planId)
-            .setQuery(Query.newBuilder().addQuals(randomQ).addColumns("column1")).setMaxBatchSizeBytes(1024 * 1024)
+            .setQuery(Query.newBuilder().addQuals(randomQ).addColumns("column1"))
+            .setMaxBatchSizeBytes(1024 * 1024)
             .build()
 
           val it = stub.executeTable(request)
@@ -320,7 +321,8 @@ class TablesServiceHighConcurrencySpec
             .setDasId(dasId)
             .setTableId(TableId.newBuilder().setName("slow")) // or "big"
             .setPlanId(planId)
-            .setQuery(Query.newBuilder().addColumns("column1")).setMaxBatchSizeBytes(1024 * 1024)
+            .setQuery(Query.newBuilder().addColumns("column1"))
+            .setMaxBatchSizeBytes(1024 * 1024)
             .build()
 
           val it = stub.executeTable(req)
