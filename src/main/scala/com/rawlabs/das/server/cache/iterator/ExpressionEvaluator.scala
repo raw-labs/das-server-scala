@@ -55,6 +55,8 @@ case class IntervalVal(years: Int, months: Int, days: Int, hours: Int, minutes: 
 case class RecordVal(atts: Seq[(String, ValueWrapper)]) extends ValueWrapper
 case class ListVal(vals: Seq[ValueWrapper]) extends ValueWrapper
 
+case class UnsupportedExpressionError(msg: String) extends Exception(msg)
+
 object ExpressionEvaluator {
 
   // ============================
@@ -80,7 +82,7 @@ object ExpressionEvaluator {
     val colOpt = row.getColumnsList.asScala.find(_.getName == colName)
     colOpt match {
       case Some(col) => toValueWrapper(col.getData)
-      case None      => NullVal
+      case None      => throw UnsupportedExpressionError(s"Column not found: $colName")
     }
   }
 
@@ -133,7 +135,7 @@ object ExpressionEvaluator {
           val lst = value.getList.getValuesList.asScala.map(toValueWrapper)
           ListVal(lst.toSeq)
         case _ =>
-          NullVal
+          throw UnsupportedExpressionError(s"Unsupported value type: ${value.getValueCase}")
       }
   }
 
@@ -189,7 +191,7 @@ object ExpressionEvaluator {
     (lhs, rhs) match {
       case (n1: NumericVal, n2: NumericVal) =>
         DecimalVal(numericToBigDecimal(n1) + numericToBigDecimal(n2))
-      case _ => NullVal
+      case _ => throw UnsupportedExpressionError(s"Unsupported types for PLUS: $lhs, $rhs")
     }
   }
 
@@ -197,7 +199,7 @@ object ExpressionEvaluator {
     (lhs, rhs) match {
       case (n1: NumericVal, n2: NumericVal) =>
         DecimalVal(numericToBigDecimal(n1) - numericToBigDecimal(n2))
-      case _ => NullVal
+      case _ => throw UnsupportedExpressionError(s"Unsupported types for MINUS: $lhs, $rhs")
     }
   }
 
@@ -205,7 +207,7 @@ object ExpressionEvaluator {
     (lhs, rhs) match {
       case (n1: NumericVal, n2: NumericVal) =>
         DecimalVal(numericToBigDecimal(n1) * numericToBigDecimal(n2))
-      case _ => NullVal
+      case _ => throw UnsupportedExpressionError(s"Unsupported types for TIMES: $lhs, $rhs")
     }
   }
 
@@ -215,7 +217,7 @@ object ExpressionEvaluator {
         val d2 = numericToBigDecimal(n2)
         if (d2 == 0) NullVal
         else DecimalVal(numericToBigDecimal(n1) / d2)
-      case _ => NullVal
+      case _ => throw UnsupportedExpressionError(s"Unsupported types for DIV: $lhs, $rhs")
     }
   }
 
@@ -225,7 +227,7 @@ object ExpressionEvaluator {
         val d2 = numericToBigDecimal(n2)
         if (d2 == 0) NullVal
         else DecimalVal(numericToBigDecimal(n1).remainder(d2.bigDecimal))
-      case _ => NullVal
+      case _ => throw UnsupportedExpressionError(s"Unsupported types for MOD: $lhs, $rhs")
     }
   }
 
@@ -281,7 +283,7 @@ object ExpressionEvaluator {
           evalEquals(x, y)
         }
 
-      case _ => true
+      case _ => throw UnsupportedExpressionError(s"Unsupported types for EQUALS: $lhs, $rhs")
     }
   }
 
@@ -305,7 +307,7 @@ object ExpressionEvaluator {
         (y1 == y2 && mo1 == mo2 && d1 == d2 && h1 == h2 && mi1 < mi2) ||
         (y1 == y2 && mo1 == mo2 && d1 == d2 && h1 == h2 && mi1 == mi2 && s1 < s2) ||
         (y1 == y2 && mo1 == mo2 && d1 == d2 && h1 == h2 && mi1 == mi2 && s1 == s2 && n1 < n2)
-      case _ => true
+      case _ => throw UnsupportedExpressionError(s"Unsupported types for LESS_THAN: $lhs, $rhs")
     }
   }
 
@@ -325,7 +327,7 @@ object ExpressionEvaluator {
         (y1 == y2 && mo1 == mo2 && d1 == d2 && h1 == h2 && mi1 > mi2) ||
         (y1 == y2 && mo1 == mo2 && d1 == d2 && h1 == h2 && mi1 == mi2 && s1 > s2) ||
         (y1 == y2 && mo1 == mo2 && d1 == d2 && h1 == h2 && mi1 == mi2 && s1 == s2 && n1 > n2)
-      case _ => true
+      case _ => throw UnsupportedExpressionError(s"Unsupported types for GREATER_THAN: $lhs, $rhs")
     }
   }
 
@@ -334,7 +336,7 @@ object ExpressionEvaluator {
     (lhs, rhs) match {
       case (StringVal(a), StringVal(b)) =>
         if (caseInsensitive) a.toLowerCase.contains(b.toLowerCase) else a.contains(b)
-      case _ => false
+      case _ => throw UnsupportedExpressionError(s"Unsupported types for LIKE/ILIKE: $lhs, $rhs")
     }
   }
 
@@ -342,14 +344,14 @@ object ExpressionEvaluator {
   private def evalAnd(lhs: ValueWrapper, rhs: ValueWrapper): ValueWrapper = {
     (lhs, rhs) match {
       case (BoolVal(a), BoolVal(b)) => BoolVal(a && b)
-      case _                        => BoolVal(false)
+      case _                        => throw UnsupportedExpressionError(s"Unsupported types for AND: $lhs, $rhs")
     }
   }
 
   private def evalOr(lhs: ValueWrapper, rhs: ValueWrapper): ValueWrapper = {
     (lhs, rhs) match {
       case (BoolVal(a), BoolVal(b)) => BoolVal(a || b)
-      case _                        => BoolVal(false)
+      case _                        => throw UnsupportedExpressionError(s"Unsupported types for OR: $lhs, $rhs")
     }
   }
 }

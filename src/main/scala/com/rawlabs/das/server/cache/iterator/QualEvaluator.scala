@@ -17,12 +17,13 @@ import scala.jdk.CollectionConverters._
 import com.rawlabs.protocol.das.v1.query._
 import com.rawlabs.protocol.das.v1.tables._
 import com.rawlabs.protocol.das.v1.types._
+import com.typesafe.scalalogging.StrictLogging
 
 /**
  * QualEvaluator uses ExpressionEvaluator to interpret each Qual as an Expression and check whether a row satisfies all
  * Quals in a Query.
  */
-object QualEvaluator {
+object QualEvaluator extends StrictLogging {
 
   /**
    * Returns true if the row satisfies ALL the qualifiers in `query.quals`.
@@ -35,16 +36,19 @@ object QualEvaluator {
     val qualExprs: Seq[Expression] =
       quals.map(qual => qualToExpression(qual))
 
-    if (qualExprs.isEmpty) {
-      // No quals => trivially true, or decide your logic
-      true
-    } else {
-      // Combine them with AND
-      val combinedExpr = qualExprs.reduceLeft { (acc, next) =>
-        BinaryOp(Operator.AND, acc, next)
+    val qualValues = qualExprs.map { expr =>
+      try {
+        evaluateBooleanExpression(row, expr)
+      } catch {
+        case UnsupportedExpressionError(msg) =>
+          // Expressions that aren't supported are considered true.
+          // We log it as a warning in case it's missing support.
+          logger.warn("Unsupported expression: {}", msg)
+          true
       }
-      evaluateBooleanExpression(row, combinedExpr)
     }
+
+    qualValues.forall(identity)
   }
 
   /**
@@ -109,11 +113,11 @@ object QualEvaluator {
     val values = allQ.getValuesList.asScala
 
     if (values.isEmpty) {
-      // ALL over empty => true?
-      // you can pick the behavior. Let's do "true" literal.
+      // ALL over empty => true
       val trueVal = Value.newBuilder().setBool(ValueBool.newBuilder().setV(true)).build()
       Literal(trueVal)
     } else {
+
       val subExprs = values.map { v =>
         BinaryOp(operator, ColumnRef(columnName), Literal(v))
       }
@@ -125,13 +129,17 @@ object QualEvaluator {
   }
 
   /**
-   * Evaluate an Expression that should yield a bool. If it yields BoolVal(true), return true.
+   * Evaluate an Expression that should yield a bool. If it yields null, we consider it false, if it's a non-bool, we
+   * log a warning and return false.
    */
   private def evaluateBooleanExpression(row: Row, expr: Expression): Boolean = {
     val result: ValueWrapper = ExpressionEvaluator.evaluateExpression(row, expr)
     result match {
-      case BoolVal(true) => true
-      case _             => false
+      case BoolVal(v) => v
+      case NullVal    => false // Null is considered false
+      case _ =>
+        logger.warn("Expression did not evaluate to a boolean: {}", result)
+        false
     }
   }
 }
