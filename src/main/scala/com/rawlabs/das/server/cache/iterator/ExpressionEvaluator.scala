@@ -12,6 +12,8 @@
 
 package com.rawlabs.das.server.cache.iterator
 
+import java.time.{LocalDate, LocalDateTime, ZoneOffset}
+
 import scala.jdk.CollectionConverters._
 
 import com.rawlabs.protocol.das.v1.query._
@@ -262,12 +264,18 @@ object ExpressionEvaluator {
       case (DateVal(y1, m1, d1), DateVal(y2, m2, d2)) =>
         (y1 == y2) && (m1 == m2) && (d1 == d2)
 
+      case (dateVal: DateVal, timestampVal: TimestampVal) =>
+        dateValToNanos(dateVal) == timestampValToNanos(timestampVal)
+
       case (TimeVal(h1, m1, s1, n1), TimeVal(h2, m2, s2, n2)) =>
         h1 == h2 && m1 == m2 && s1 == s2 && n1 == n2
 
       case (TimestampVal(y1, mo1, d1, h1, mi1, s1, n1), TimestampVal(y2, mo2, d2, h2, mi2, s2, n2)) =>
         y1 == y2 && mo1 == mo2 && d1 == d2 &&
         h1 == h2 && mi1 == mi2 && s1 == s2 && n1 == n2
+
+      case (timestampVal: TimestampVal, dateVal: DateVal) =>
+        timestampValToNanos(timestampVal) == dateValToNanos(dateVal)
 
       case (IntervalVal(yrs1, mon1, da1, hr1, min1, sec1, mic1), IntervalVal(yrs2, mon2, da2, hr2, min2, sec2, mic2)) =>
         yrs1 == yrs2 && mon1 == mon2 && da1 == da2 &&
@@ -299,14 +307,19 @@ object ExpressionEvaluator {
       // Strings
       case (StringVal(s1), StringVal(s2)) =>
         s1 < s2
-      case (DateVal(y1, m1, d1), DateVal(y2, m2, d2)) =>
-        (y1 < y2) || (y1 == y2 && m1 < m2) || (y1 == y2 && m1 == m2 && d1 < d2)
-      case (TimestampVal(y1, mo1, d1, h1, mi1, s1, n1), TimestampVal(y2, mo2, d2, h2, mi2, s2, n2)) =>
-        (y1 < y2) || (y1 == y2 && mo1 < mo2) || (y1 == y2 && mo1 == mo2 && d1 < d2) ||
-        (y1 == y2 && mo1 == mo2 && d1 == d2 && h1 < h2) ||
-        (y1 == y2 && mo1 == mo2 && d1 == d2 && h1 == h2 && mi1 < mi2) ||
-        (y1 == y2 && mo1 == mo2 && d1 == d2 && h1 == h2 && mi1 == mi2 && s1 < s2) ||
-        (y1 == y2 && mo1 == mo2 && d1 == d2 && h1 == h2 && mi1 == mi2 && s1 == s2 && n1 < n2)
+
+      case (d1: DateVal, d2: DateVal) =>
+        dateValToNanos(d1) < dateValToNanos(d2)
+
+      case (t1: TimestampVal, t2: TimestampVal) =>
+        timestampValToNanos(t1) < timestampValToNanos(t2)
+
+      case (dateVal: DateVal, timestampVal: TimestampVal) =>
+        dateValToNanos(dateVal) < timestampValToNanos(timestampVal)
+
+      case (timestampVal: TimestampVal, dateVal: DateVal) =>
+        timestampValToNanos(timestampVal) < dateValToNanos(dateVal)
+
       case _ => throw UnsupportedExpressionError(s"Unsupported types for LESS_THAN: $lhs, $rhs")
     }
   }
@@ -319,14 +332,19 @@ object ExpressionEvaluator {
         numericToBigDecimal(n1) > numericToBigDecimal(n2)
       case (StringVal(s1), StringVal(s2)) =>
         s1 > s2
-      case (DateVal(y1, m1, d1), DateVal(y2, m2, d2)) =>
-        (y1 > y2) || (y1 == y2 && m1 > m2) || (y1 == y2 && m1 == m2 && d1 > d2)
-      case (TimestampVal(y1, mo1, d1, h1, mi1, s1, n1), TimestampVal(y2, mo2, d2, h2, mi2, s2, n2)) =>
-        (y1 > y2) || (y1 == y2 && mo1 > mo2) || (y1 == y2 && mo1 == mo2 && d1 > d2) ||
-        (y1 == y2 && mo1 == mo2 && d1 == d2 && h1 > h2) ||
-        (y1 == y2 && mo1 == mo2 && d1 == d2 && h1 == h2 && mi1 > mi2) ||
-        (y1 == y2 && mo1 == mo2 && d1 == d2 && h1 == h2 && mi1 == mi2 && s1 > s2) ||
-        (y1 == y2 && mo1 == mo2 && d1 == d2 && h1 == h2 && mi1 == mi2 && s1 == s2 && n1 > n2)
+
+      case (d1: DateVal, d2: DateVal) =>
+        dateValToNanos(d1) > dateValToNanos(d2)
+
+      case (t1: TimestampVal, t2: TimestampVal) =>
+        timestampValToNanos(t1) > timestampValToNanos(t2)
+
+      case (dateVal: DateVal, timestampVal: TimestampVal) =>
+        dateValToNanos(dateVal) > timestampValToNanos(timestampVal)
+
+      case (timestampVal: TimestampVal, dateVal: DateVal) =>
+        timestampValToNanos(timestampVal) > dateValToNanos(dateVal)
+
       case _ => throw UnsupportedExpressionError(s"Unsupported types for GREATER_THAN: $lhs, $rhs")
     }
   }
@@ -353,5 +371,19 @@ object ExpressionEvaluator {
       case (BoolVal(a), BoolVal(b)) => BoolVal(a || b)
       case _                        => throw UnsupportedExpressionError(s"Unsupported types for OR: $lhs, $rhs")
     }
+  }
+
+  private def dateValToNanos(v: DateVal): Long = {
+    // Convert date to midnight in UTC, then to epoch second, then multiply by 1e9
+    val ld = LocalDate.of(v.year, v.month, v.day).atStartOfDay(ZoneOffset.UTC)
+    val epochSec = ld.toEpochSecond
+    epochSec * 1_000_000_000L // convert seconds to nanoseconds
+  }
+
+  private def timestampValToNanos(v: TimestampVal): Long = {
+    // Convert timestamp to epoch second in UTC, then add the fractional nanos
+    val ldt = LocalDateTime.of(v.year, v.month, v.day, v.hour, v.minute, v.second, v.nano)
+    val epochSec = ldt.toEpochSecond(ZoneOffset.UTC)
+    epochSec * 1_000_000_000L + v.nano.toLong
   }
 }
