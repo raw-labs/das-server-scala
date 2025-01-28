@@ -12,7 +12,7 @@
 
 package com.rawlabs.das.postgresql
 
-import java.sql.{Connection, DriverManager, SQLException}
+import java.sql.{Connection, DriverManager, ResultSet, SQLException}
 
 import scala.jdk.CollectionConverters.IteratorHasAsScala
 
@@ -31,11 +31,13 @@ import com.rawlabs.protocol.das.v1.types._
  */
 class PostgresqlBackend(url: String, user: String, password: String, schema: String) {
 
+  Class.forName("org.postgresql.Driver")
+
   /**
    * Returns a map of tableName -> DASPostgresTable, each containing a TableDefinition. Similar to the original
    * SqliteBackend#tables().
    */
-  Class.forName("org.postgresql.Driver")
+
   def tables(): Map[String, DASPostgresqlTable] = {
     val tables = scala.collection.mutable.Map.empty[String, DASPostgresqlTable]
     var conn: Connection = null
@@ -57,46 +59,7 @@ class PostgresqlBackend(url: String, user: String, password: String, schema: Str
         try {
           while (rs.next()) {
             val tableName = rs.getString("tablename").toLowerCase
-            println(s"Table: $tableName")
-
-            val descriptionBuilder = TableDefinition
-              .newBuilder()
-              .setTableId(TableId.newBuilder().setName(tableName))
-              .setDescription(s"Table $tableName in $schema schema")
-
-            // 2) For each table, list columns using the information schema.
-            //    Retrieve name, type, and nullability.
-            val columnsSQL =
-              s"""
-                 |SELECT column_name, data_type, is_nullable
-                 |FROM information_schema.columns
-                 |WHERE table_schema='public' AND table_name='$tableName'
-               """.stripMargin
-
-            val stmt2 = conn.createStatement()
-            try {
-              val rs2 = stmt2.executeQuery(columnsSQL)
-              try {
-                while (rs2.next()) {
-                  val columnName = rs2.getString("column_name").toLowerCase
-                  val columnType = rs2.getString("data_type") // e.g. "character varying", "integer", "numeric", ...
-                  val isNullable = rs2.getString("is_nullable") // "YES" or "NO"
-                  val nullable = isNullable == "YES"
-
-                  val columnDefinition = ColumnDefinition
-                    .newBuilder()
-                    .setName(columnName)
-                    .setType(toRaw(columnType, nullable))
-                    .build()
-
-                  descriptionBuilder.addColumns(columnDefinition)
-                }
-              } finally rs2.close()
-            } finally stmt2.close()
-
-            val tableDefinition = descriptionBuilder.build()
-            // Add to the map
-            tables += tableName -> new DASPostgresqlTable(this, tableDefinition)
+            tables += tableName -> new DASPostgresqlTable(this, tableDefinition(conn, tableName))
           }
         } finally rs.close()
       } finally stmt.close()
@@ -111,6 +74,45 @@ class PostgresqlBackend(url: String, user: String, password: String, schema: Str
         }
       }
     }
+  }
+
+  private def tableDefinition(conn: Connection, tableName: String): TableDefinition = {
+    val descriptionBuilder = TableDefinition
+      .newBuilder()
+      .setTableId(TableId.newBuilder().setName(tableName))
+      .setDescription(s"Table $tableName in $schema schema")
+
+    // 2) For each table, list columns using the information schema.
+    //    Retrieve name, type, and nullability.
+    val columnsSQL =
+      s"""
+         |SELECT column_name, data_type, is_nullable
+         |FROM information_schema.columns
+         |WHERE table_schema='public' AND table_name='$tableName'
+               """.stripMargin
+
+    val stmt = conn.createStatement()
+    try {
+      val rs = stmt.executeQuery(columnsSQL)
+      try {
+        while (rs.next()) {
+          val columnName = rs.getString("column_name").toLowerCase
+          val columnType = rs.getString("data_type") // e.g. "character varying", "integer", "numeric", ...
+          val isNullable = rs.getString("is_nullable") // "YES" or "NO"
+          val nullable = isNullable == "YES"
+
+          val columnDefinition = ColumnDefinition
+            .newBuilder()
+            .setName(columnName)
+            .setType(toRaw(columnType, nullable))
+            .build()
+
+          descriptionBuilder.addColumns(columnDefinition)
+        }
+      } finally rs.close()
+    } finally stmt.close()
+
+    descriptionBuilder.build()
   }
 
   /**
@@ -144,6 +146,105 @@ class PostgresqlBackend(url: String, user: String, password: String, schema: Str
         builder.setTimestamp(TimestampType.newBuilder().setNullable(nullable))
     }
     builder.build()
+  }
+
+  private def toValue(rs: ResultSet, i: Int, colType: Int) = {
+    val valueBuilder = Value.newBuilder()
+    val obj = rs.getObject(i)
+    if (obj == null) {
+      // The column is NULL => we simply don't set a sub-value, or we can mark it in some way.
+      // Typically, you'd represent it with an empty sub-value or a special case.
+      // For example, skip or store a "null" marker. Here we do nothing => it remains "null"
+      valueBuilder.setNull(ValueNull.newBuilder())
+    } else {
+      colType match {
+        // --- Numeric types ---
+        case java.sql.Types.SMALLINT =>
+          val shortVal = rs.getShort(i)
+          valueBuilder.setShort(ValueShort.newBuilder().setV(shortVal))
+
+        case java.sql.Types.INTEGER =>
+          val intVal = rs.getInt(i)
+          valueBuilder.setInt(ValueInt.newBuilder().setV(intVal))
+
+        case java.sql.Types.BIGINT =>
+          val longVal = rs.getLong(i)
+          valueBuilder.setLong(ValueLong.newBuilder().setV(longVal))
+
+        case java.sql.Types.REAL =>
+          val floatVal = rs.getFloat(i)
+          valueBuilder.setFloat(ValueFloat.newBuilder().setV(floatVal))
+
+        case java.sql.Types.DOUBLE =>
+          val doubleVal = rs.getDouble(i)
+          valueBuilder.setDouble(ValueDouble.newBuilder().setV(doubleVal))
+
+        case java.sql.Types.NUMERIC | java.sql.Types.DECIMAL =>
+          // If your 'DecimalType' proto can handle precision/scale, you may want to
+          // retrieve them via metadata. For now, just store as string or do getBigDecimal:
+          val bigDec = rs.getBigDecimal(i)
+          if (bigDec != null) {
+            valueBuilder.setDecimal(ValueDecimal.newBuilder().setV(bigDec.toPlainString))
+          } else {
+            // handle null BigDecimal
+            valueBuilder.setNull(ValueNull.newBuilder())
+          }
+
+        // --- Boolean ---
+        case java.sql.Types.BOOLEAN | java.sql.Types.BIT =>
+          val boolVal = rs.getBoolean(i)
+          valueBuilder.setBool(ValueBool.newBuilder().setV(boolVal))
+
+        // --- Text/Char ---
+        case java.sql.Types.CHAR | java.sql.Types.VARCHAR | java.sql.Types.LONGVARCHAR | java.sql.Types.CLOB =>
+          val strVal = rs.getString(i)
+          valueBuilder.setString(ValueString.newBuilder().setV(strVal))
+
+        // --- Date & Time ---
+        case java.sql.Types.DATE =>
+          val dateVal = rs.getDate(i) // java.sql.Date
+          if (dateVal != null) {
+            val localDate = dateVal.toLocalDate
+            valueBuilder.setDate(
+              ValueDate
+                .newBuilder()
+                .setYear(localDate.getYear)
+                .setMonth(localDate.getMonthValue)
+                .setDay(localDate.getDayOfMonth))
+          }
+
+        case java.sql.Types.TIME =>
+          val timeVal = rs.getTime(i) // java.sql.Time
+          if (timeVal != null) {
+            val localTime = timeVal.toLocalTime
+            // e.g., store hours/min/sec in your proto:
+            valueBuilder.setTime(
+              ValueTime
+                .newBuilder()
+                .setHour(localTime.getHour)
+                .setMinute(localTime.getMinute)
+                .setSecond(localTime.getSecond))
+          }
+
+        case java.sql.Types.TIMESTAMP =>
+          val tsVal = rs.getTimestamp(i) // java.sql.Timestamp
+          if (tsVal != null) {
+            val localDateTime = tsVal.toLocalDateTime
+            // your proto might store date+time, or a string, or epoch millis
+            valueBuilder.setTimestamp(
+              ValueTimestamp
+                .newBuilder()
+                .setYear(localDateTime.getYear)
+                .setMonth(localDateTime.getMonthValue)
+                .setDay(localDateTime.getDayOfMonth)
+                .setHour(localDateTime.getHour)
+                .setMinute(localDateTime.getMinute)
+                .setSecond(localDateTime.getSecond)
+                .setNano(localDateTime.getNano))
+          }
+      }
+    }
+    valueBuilder.build()
   }
 
   def estimate(query: String): TableEstimate = {
@@ -226,107 +327,11 @@ class PostgresqlBackend(url: String, user: String, password: String, schema: Str
         for (i <- 1 to colCount) {
           val columnName = metadata.getColumnName(i).toLowerCase
           val colType = metadata.getColumnType(i)
-          val obj = rs.getObject(i)
-
-          val valueBuilder = Value.newBuilder()
-          if (obj == null) {
-            // The column is NULL => we simply don't set a sub-value, or we can mark it in some way.
-            // Typically, you'd represent it with an empty sub-value or a special case.
-            // For example, skip or store a "null" marker. Here we do nothing => it remains "null"
-            valueBuilder.setNull(ValueNull.newBuilder())
-          } else {
-            colType match {
-              // --- Numeric types ---
-              case java.sql.Types.SMALLINT =>
-                val shortVal = rs.getShort(i)
-                valueBuilder.setShort(ValueShort.newBuilder().setV(shortVal))
-
-              case java.sql.Types.INTEGER =>
-                val intVal = rs.getInt(i)
-                valueBuilder.setInt(ValueInt.newBuilder().setV(intVal))
-
-              case java.sql.Types.BIGINT =>
-                val longVal = rs.getLong(i)
-                valueBuilder.setLong(ValueLong.newBuilder().setV(longVal))
-
-              case java.sql.Types.REAL =>
-                val floatVal = rs.getFloat(i)
-                valueBuilder.setFloat(ValueFloat.newBuilder().setV(floatVal))
-
-              case java.sql.Types.DOUBLE =>
-                val doubleVal = rs.getDouble(i)
-                valueBuilder.setDouble(ValueDouble.newBuilder().setV(doubleVal))
-
-              case java.sql.Types.NUMERIC | java.sql.Types.DECIMAL =>
-                // If your 'DecimalType' proto can handle precision/scale, you may want to
-                // retrieve them via metadata. For now, just store as string or do getBigDecimal:
-                val bigDec = rs.getBigDecimal(i)
-                if (bigDec != null) {
-                  valueBuilder.setDecimal(ValueDecimal.newBuilder().setV(bigDec.toPlainString))
-                } else {
-                  // handle null BigDecimal
-                  valueBuilder.setNull(ValueNull.newBuilder())
-                }
-
-              // --- Boolean ---
-              case java.sql.Types.BOOLEAN | java.sql.Types.BIT =>
-                val boolVal = rs.getBoolean(i)
-                valueBuilder.setBool(ValueBool.newBuilder().setV(boolVal))
-
-              // --- Text/Char ---
-              case java.sql.Types.CHAR | java.sql.Types.VARCHAR | java.sql.Types.LONGVARCHAR | java.sql.Types.CLOB =>
-                val strVal = rs.getString(i)
-                valueBuilder.setString(ValueString.newBuilder().setV(strVal))
-
-              // --- Date & Time ---
-              case java.sql.Types.DATE =>
-                val dateVal = rs.getDate(i) // java.sql.Date
-                if (dateVal != null) {
-                  val localDate = dateVal.toLocalDate
-                  valueBuilder.setDate(
-                    ValueDate
-                      .newBuilder()
-                      .setYear(localDate.getYear)
-                      .setMonth(localDate.getMonthValue)
-                      .setDay(localDate.getDayOfMonth))
-                }
-
-              case java.sql.Types.TIME =>
-                val timeVal = rs.getTime(i) // java.sql.Time
-                if (timeVal != null) {
-                  val localTime = timeVal.toLocalTime
-                  // e.g., store hours/min/sec in your proto:
-                  valueBuilder.setTime(
-                    ValueTime
-                      .newBuilder()
-                      .setHour(localTime.getHour)
-                      .setMinute(localTime.getMinute)
-                      .setSecond(localTime.getSecond))
-                }
-
-              case java.sql.Types.TIMESTAMP =>
-                val tsVal = rs.getTimestamp(i) // java.sql.Timestamp
-                if (tsVal != null) {
-                  val localDateTime = tsVal.toLocalDateTime
-                  // your proto might store date+time, or a string, or epoch millis
-                  valueBuilder.setTimestamp(
-                    ValueTimestamp
-                      .newBuilder()
-                      .setYear(localDateTime.getYear)
-                      .setMonth(localDateTime.getMonthValue)
-                      .setDay(localDateTime.getDayOfMonth)
-                      .setHour(localDateTime.getHour)
-                      .setMinute(localDateTime.getMinute)
-                      .setSecond(localDateTime.getSecond)
-                      .setNano(localDateTime.getNano))
-                }
-            }
-          }
-
+          val value = toValue(rs, i, colType)
           val column = Column
             .newBuilder()
             .setName(columnName)
-            .setData(valueBuilder)
+            .setData(value)
             .build()
 
           rowBuilder.addColumns(column)

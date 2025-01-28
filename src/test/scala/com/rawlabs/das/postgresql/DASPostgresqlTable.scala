@@ -197,6 +197,7 @@ class DASPostgresqlTable(backend: PostgresqlBackend, defn: TableDefinition) exte
     // Combine with OR
     clauses.mkString("(", " OR ", ")")
   }
+
   private def simpleQualToSql(colName: String, sq: SimpleQual): String = {
     if (sq.getValue.hasNull && sq.getOperator == Operator.EQUALS) {
       s"$colName IS NULL"
