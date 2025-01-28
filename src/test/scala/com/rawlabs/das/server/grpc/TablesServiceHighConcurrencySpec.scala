@@ -170,6 +170,8 @@ class TablesServiceHighConcurrencySpec
       val chunk = stubIterator.next()
       total += chunk.getRowsCount
     }
+    // Since the server sends batches, we might have read more than the limit
+    if (total > limit) total = limit
     total
   }
 

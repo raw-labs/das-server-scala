@@ -12,12 +12,13 @@
 
 package com.rawlabs.das.server.cache.iterator
 
-import java.time.{LocalDate, LocalDateTime, ZoneOffset}
+import java.time.{DateTimeException, LocalDate, LocalDateTime, ZoneOffset}
 
 import scala.jdk.CollectionConverters._
 
 import com.rawlabs.protocol.das.v1.query._
 import com.rawlabs.protocol.das.v1.types._
+import com.typesafe.scalalogging.StrictLogging
 
 /**
  * Analyzes two sets of Quals to see if `newQuals` is "more selective" than `oldQuals`.
@@ -25,7 +26,7 @@ import com.rawlabs.protocol.das.v1.types._
  * "More selective" means: 1) If a row satisfies `newQuals`, then it must satisfy `oldQuals` as well (new ⇒ old). 2)
  * `newQuals` introduces at least one strictly narrower constraint not already covered by `oldQuals`.
  */
-object QualSelectivityAnalyzer {
+object QualSelectivityAnalyzer extends StrictLogging {
 
   /**
    * @param oldQuals Existing qualifiers
@@ -179,43 +180,46 @@ object QualSelectivityAnalyzer {
       case Value.ValueCase.DOUBLE  => Some(BigDecimal.decimal(v.getDouble.getV))
       case Value.ValueCase.DECIMAL => Some(BigDecimal(v.getDecimal.getV))
       case Value.ValueCase.DATE    =>
-        // Convert date -> days since epoch => BigDecimal
+        // Convert date -> nanoseconds since epoch. TIMESTAMP is also
+        // converted to nanoseconds, so we can compare them.
         val d = v.getDate
         try {
           val localDate = LocalDate.of(d.getYear, d.getMonth, d.getDay)
           // toEpochDay => number of days since 1970-01-01
           val days = localDate.toEpochDay
-          Some(BigDecimal(days))
+          // 1 day = 24 * 3600 * 1,000,000,000 nanoseconds
+          val nanos = days * 24L * 3600L * 1_000_000_000L
+          Some(BigDecimal(nanos))
         } catch {
-          case _: Throwable => None
+          case _: DateTimeException =>
+            logger.warn("Failed to convert date to BigDecimal (nanoseconds): {}", v)
+            None
         }
 
       case Value.ValueCase.TIME =>
-        // Convert time -> microseconds since midnight => BigDecimal
+        // Convert time -> nanoseconds since midnight
         val t = v.getTime
-        try {
-          // second + nano
-          val totalSeconds = t.getHour * 3600L + t.getMinute * 60L + t.getSecond
-          // We'll represent time of day as microseconds from midnight
-          val micros = totalSeconds * 1_000_000L + (t.getNano.toLong / 1000L)
-          Some(BigDecimal(micros))
-        } catch {
-          case _: Throwable => None
-        }
+        val totalSeconds = t.getHour * 3600L + t.getMinute * 60L + t.getSecond
+        // totalSeconds in nanoseconds + the existing nano offset
+        val nanos = totalSeconds * 1_000_000_000L + t.getNano.toLong
+        Some(BigDecimal(nanos))
 
       case Value.ValueCase.TIMESTAMP =>
-        // Convert timestamp -> microseconds since epoch => BigDecimal
+        // Convert timestamp -> nanoseconds since epoch. DATE is also
+        // converted to nanoseconds, so we can compare them.
         val ts = v.getTimestamp
         try {
           val ldt =
             LocalDateTime.of(ts.getYear, ts.getMonth, ts.getDay, ts.getHour, ts.getMinute, ts.getSecond, ts.getNano)
-          // Convert to epoch second in UTC.
-          // Note: This ignores time zones if your data is naive. Adjust if needed.
+          // Convert to epoch second in UTC (assuming UTC-based timestamps)
           val epochSec = ldt.toEpochSecond(ZoneOffset.UTC)
-          val micros = epochSec * 1_000_000L + (ts.getNano.toLong / 1000L)
-          Some(BigDecimal(micros))
+          // Combine the second-based offset with the fractional nano
+          val nanos = epochSec * 1_000_000_000L + ts.getNano.toLong
+          Some(BigDecimal(nanos))
         } catch {
-          case _: Throwable => None
+          case _: DateTimeException =>
+            logger.warn("Failed to convert timestamp to BigDecimal (nanoseconds): {}", v)
+            None
         }
       case _ => None
     }
