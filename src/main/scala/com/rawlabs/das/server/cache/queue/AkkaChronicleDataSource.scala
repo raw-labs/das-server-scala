@@ -311,7 +311,8 @@ private class ChronicleDataSourceBehavior[T](
   private var graceTimerActive = false
 
   // Start production ticks
-  timers.startTimerAtFixedRate(ProducerTick, ProducerTick, producerInterval)
+  log.info(s"Starting producer ticks with a delay $producerInterval")
+  timers.startTimerWithFixedDelay(ProducerTick, ProducerTick, producerInterval)
 
   // Possibly schedule grace if no consumers
   checkGracePeriod()

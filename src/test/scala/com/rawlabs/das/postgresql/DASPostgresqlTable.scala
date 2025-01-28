@@ -60,7 +60,7 @@ class DASPostgresqlTable(backend: PostgresqlBackend, defn: TableDefinition) exte
 
     // Build SELECT list
     val selectClause =
-      if (columns.isEmpty) "*"
+      if (columns.isEmpty) "1"
       else columns.map(c => quoteIdentifier(c)).mkString(", ")
 
     // Build WHERE from `quals`
