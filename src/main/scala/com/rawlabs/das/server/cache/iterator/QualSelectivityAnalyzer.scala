@@ -103,13 +103,7 @@ object QualSelectivityAnalyzer extends StrictLogging {
   //  SimpleQual => SimpleQual
   // ----------------------------------------------------------------
   private def impliesSimple(a: SimpleQual, b: SimpleQual): Boolean = {
-    if (a.getOperator == b.getOperator) {
-      // same operator => compare thresholds
-      canOperatorAImplyB(a.getOperator, a.getValue, b.getOperator, b.getValue)
-    } else {
-      // different operators => maybe x>20 => x>10, etc.
-      canOperatorAImplyB(a.getOperator, a.getValue, b.getOperator, b.getValue)
-    }
+    canOperatorAImplyB(a.getOperator, a.getValue, b.getOperator, b.getValue)
   }
 
   // A minimal approach for numeric comparisons:
