@@ -13,6 +13,7 @@
 package com.rawlabs.das.server.cache.iterator
 
 import java.time.{LocalDate, LocalDateTime, ZoneOffset}
+import java.util.regex.Pattern
 
 import scala.jdk.CollectionConverters._
 
@@ -300,11 +301,9 @@ object ExpressionEvaluator {
       case (NullVal, _) => false
       case (_, NullVal) => false
 
-      // Numeric
       case (n1: NumericVal, n2: NumericVal) =>
         numericToBigDecimal(n1) < numericToBigDecimal(n2)
 
-      // Strings
       case (StringVal(s1), StringVal(s2)) =>
         s1 < s2
 
@@ -349,27 +348,57 @@ object ExpressionEvaluator {
     }
   }
 
+  private def convertLikeToRegex(likePattern: String): String = {
+    val sb = new StringBuilder
+    likePattern.foreach {
+      case '%'                               => sb.append(".*")
+      case '_'                               => sb.append('.')
+      case c if ".^$+?{}[]\\|()".contains(c) =>
+        // escape regex special chars
+        sb.append('\\').append(c)
+      case other =>
+        sb.append(other)
+    }
+    sb.toString
+  }
+
   // 4.3 LIKE / ILIKE
   private def evalLike(lhs: ValueWrapper, rhs: ValueWrapper, caseInsensitive: Boolean): Boolean = {
     (lhs, rhs) match {
-      case (StringVal(a), StringVal(b)) =>
-        if (caseInsensitive) a.toLowerCase.contains(b.toLowerCase) else a.contains(b)
-      case _ => throw UnsupportedExpressionError(s"Unsupported types for LIKE/ILIKE: $lhs, $rhs")
+      case (StringVal(text), StringVal(pattern)) =>
+        val regex = convertLikeToRegex(pattern)
+        val flags = if (caseInsensitive) Pattern.CASE_INSENSITIVE else 0
+        val p = Pattern.compile(regex, flags)
+        p.matcher(text).matches()
+      case _ =>
+        throw UnsupportedExpressionError(s"Unsupported types for LIKE/ILIKE: $lhs, $rhs")
     }
   }
 
-  // 4.4 Boolean AND / OR
+  // 4.4 Boolean AND / OR, Postgres 3-valued logic
   private def evalAnd(lhs: ValueWrapper, rhs: ValueWrapper): ValueWrapper = {
     (lhs, rhs) match {
       case (BoolVal(a), BoolVal(b)) => BoolVal(a && b)
-      case _                        => throw UnsupportedExpressionError(s"Unsupported types for AND: $lhs, $rhs")
+      case (NullVal, v) =>
+        if (v == BoolVal(false)) BoolVal(false) // ? AND false
+        else NullVal
+      case (v, NullVal) =>
+        if (v == BoolVal(false)) BoolVal(false)
+        else NullVal
+      case _ => throw UnsupportedExpressionError(s"Unsupported types for AND: $lhs, $rhs")
     }
   }
 
   private def evalOr(lhs: ValueWrapper, rhs: ValueWrapper): ValueWrapper = {
     (lhs, rhs) match {
       case (BoolVal(a), BoolVal(b)) => BoolVal(a || b)
-      case _                        => throw UnsupportedExpressionError(s"Unsupported types for OR: $lhs, $rhs")
+      case (NullVal, v) =>
+        if (v == BoolVal(true)) BoolVal(true) // ? OR true
+        else NullVal
+      case (v, NullVal) =>
+        if (v == BoolVal(true)) BoolVal(true)
+        else NullVal
+      case _ => throw UnsupportedExpressionError(s"Unsupported types for OR: $lhs, $rhs")
     }
   }
 
