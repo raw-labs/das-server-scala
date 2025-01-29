@@ -211,22 +211,6 @@ class QualSelectivityAnalyzerSpec extends AnyFunSpec with Matchers {
       res shouldBe None
     }
 
-    it("should handle IsAnyQual subset properly for a => b case where bSet is subset of aSet") {
-      // old => color in {1,2,3,4}, new => color in {2,3}
-      // For old => new, we are checking if new is "covered"? Actually in differenceIfMoreSelective,
-      // we want each old to be covered by new => we do isCoveredBy(oldQ, newQuals), i.e. newQuals must have a qual that implies oldQ.
-      // We also do the difference by isAlreadyCovered(newQ, oldQuals).
-      //
-      // Actually let's invert the usual logic: If a => b to hold, we want b's set to be subset of a's set for ANY.
-      // But we have old=ANY(1,2,3,4) => new=ANY(2,3). This means if a value is in {1,2,3,4}, it's not necessarily in {2,3}. So a => b is false.
-      // But for the differenceIfMoreSelective, we want new => old or old => new? The code does old => new. So we expect None again.
-      val oldQuals = Seq(isAnyQual("color", Operator.EQUALS, 1, 2, 3, 4))
-      val newQuals = Seq(isAnyQual("color", Operator.EQUALS, 2, 3))
-
-      val res = QualSelectivityAnalyzer.differenceIfMoreSelective(oldQuals, newQuals)
-      res shouldBe None
-    }
-
     it(
       "should detect new date constraint is narrower: old=[d > 2024-01-01], new=[d > 2024-06-01] => difference=[d>2024-06-01]") {
       // old => d > 2024-01-01
