@@ -21,6 +21,7 @@ import com.rawlabs.das.sdk.DASExecuteResult
 import com.rawlabs.das.sdk.scala.DASTable.TableEstimate
 import com.rawlabs.protocol.das.v1.tables._
 import com.rawlabs.protocol.das.v1.types._
+import com.typesafe.scalalogging.StrictLogging
 
 /**
  * A simple example backend for PostgreSQL, analogous to the SqliteBackend example.
@@ -29,13 +30,12 @@ import com.rawlabs.protocol.das.v1.types._
  * @param user The database user
  * @param password The password for that user
  */
-class PostgresqlBackend(url: String, user: String, password: String, schema: String) {
+class PostgresqlBackend(url: String, user: String, password: String, schema: String) extends StrictLogging {
 
   Class.forName("org.postgresql.Driver")
 
   /**
-   * Returns a map of tableName -> DASPostgresTable, each containing a TableDefinition. Similar to the original
-   * SqliteBackend#tables().
+   * Returns a map of tableName -> DASPostgresTable, each containing a TableDefinition.
    */
 
   def tables(): Map[String, DASPostgresqlTable] = {
@@ -44,8 +44,26 @@ class PostgresqlBackend(url: String, user: String, password: String, schema: Str
     try {
       conn = DriverManager.getConnection(url, user, password)
 
-      // 1) List all user tables in the "public" schema (or adapt if you want all schemas).
-      //    We’ll skip system tables or other schemas by default.
+      // Confirm the schema actually exists
+      val checkSchemaSql =
+        s"""
+           |SELECT 1
+           |FROM information_schema.schemata
+           |WHERE schema_name = '$schema'
+       """.stripMargin
+
+      val schemaCheckStmt = conn.createStatement()
+      try {
+        val rs = schemaCheckStmt.executeQuery(checkSchemaSql)
+        if (!rs.next()) {
+          throw new IllegalArgumentException(s"Schema not found: $schema")
+        }
+      } finally {
+        schemaCheckStmt.close()
+      }
+
+      // List all user tables in the "public" schema (or adapt if you want all schemas).
+      // We’ll skip system tables or other schemas by default.
       val listTablesSQL =
         s"""
           |SELECT tablename
@@ -59,7 +77,7 @@ class PostgresqlBackend(url: String, user: String, password: String, schema: Str
         try {
           while (rs.next()) {
             val tableName = rs.getString("tablename").toLowerCase
-            tables += tableName -> new DASPostgresqlTable(this, tableDefinition(conn, tableName))
+            tables += tableName -> new DASPostgresqlTable(this, schema, tableDefinition(conn, tableName))
           }
         } finally rs.close()
       } finally stmt.close()
@@ -88,7 +106,7 @@ class PostgresqlBackend(url: String, user: String, password: String, schema: Str
       s"""
          |SELECT column_name, data_type, is_nullable
          |FROM information_schema.columns
-         |WHERE table_schema='public' AND table_name='$tableName'
+         |WHERE table_schema='$schema' AND table_name='$tableName'
                """.stripMargin
 
     val stmt = conn.createStatement()
@@ -96,7 +114,7 @@ class PostgresqlBackend(url: String, user: String, password: String, schema: Str
       val rs = stmt.executeQuery(columnsSQL)
       try {
         while (rs.next()) {
-          val columnName = rs.getString("column_name").toLowerCase
+          val columnName = rs.getString("column_name")
           val columnType = rs.getString("data_type") // e.g. "character varying", "integer", "numeric", ...
           val isNullable = rs.getString("is_nullable") // "YES" or "NO"
           val nullable = isNullable == "YES"
@@ -257,6 +275,7 @@ class PostgresqlBackend(url: String, user: String, password: String, schema: Str
     try {
       val stmt = conn.createStatement()
       try {
+        logger.info(s"Executing: $explainSql")
         val rs = stmt.executeQuery(explainSql)
         try {
           if (!rs.next()) {
@@ -293,6 +312,7 @@ class PostgresqlBackend(url: String, user: String, password: String, schema: Str
   def execute(query: String): DASExecuteResult = {
     val conn = DriverManager.getConnection(url, user, password)
     val stmt = conn.createStatement()
+    logger.info(s"Executing: $query")
     val rs = stmt.executeQuery(query)
     val metadata = rs.getMetaData
 

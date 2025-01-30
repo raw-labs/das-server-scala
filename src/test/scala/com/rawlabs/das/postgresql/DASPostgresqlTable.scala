@@ -22,7 +22,7 @@ import com.rawlabs.protocol.das.v1.tables.TableDefinition
 import com.rawlabs.protocol.das.v1.types.Value
 import com.rawlabs.protocol.das.v1.types.Value.ValueCase
 
-class DASPostgresqlTable(backend: PostgresqlBackend, defn: TableDefinition) extends DASTable {
+class DASPostgresqlTable(backend: PostgresqlBackend, schema: String, defn: TableDefinition) extends DASTable {
 
   /**
    * Estimate the size of the table.
@@ -35,7 +35,7 @@ class DASPostgresqlTable(backend: PostgresqlBackend, defn: TableDefinition) exte
     // 1) Build the same WHERE clause used in `execute(...)`.
     val whereClause =
       if (quals.isEmpty) ""
-      else " WHERE " + quals.map(qualToSql).mkString(" AND ")
+      else "\nWHERE " + quals.map(qualToSql).mkString(" AND ")
 
     // 2) Possibly use columns if you want to estimate only the subset of columns,
     // or just use `*` to get the overall row width estimate from the DB.
@@ -43,8 +43,8 @@ class DASPostgresqlTable(backend: PostgresqlBackend, defn: TableDefinition) exte
       if (columns.isEmpty) "1"
       else columns.map(quoteIdentifier).mkString(", ")
 
-    val tableName = quoteIdentifier(defn.getTableId.getName)
-    val sql = s"SELECT $selectClause FROM $tableName$whereClause"
+    val sql =
+      s"SELECT $selectClause FROM ${quoteIdentifier(schema)}.${quoteIdentifier(defn.getTableId.getName)}$whereClause"
     backend.estimate(sql)
   }
 
@@ -66,15 +66,15 @@ class DASPostgresqlTable(backend: PostgresqlBackend, defn: TableDefinition) exte
     // Build WHERE from `quals`
     val whereClause =
       if (quals.isEmpty) ""
-      else " WHERE " + quals.map(qualToSql).mkString(" AND ")
+      else "\nWHERE " + quals.map(qualToSql).mkString(" AND ")
 
     // Build ORDER BY
     val orderByClause =
       if (sortKeys.isEmpty) ""
-      else " ORDER BY " + sortKeys.map(sortKeyToSql).mkString(", ")
+      else "\nORDER BY " + sortKeys.map(sortKeyToSql).mkString(", ")
 
-    val tableName = quoteIdentifier(defn.getTableId.getName)
-    val sql = s"SELECT $selectClause FROM $tableName$whereClause$orderByClause"
+    val sql =
+      s"SELECT $selectClause FROM ${quoteIdentifier(schema)}.${quoteIdentifier(defn.getTableId.getName)}$whereClause$orderByClause"
 
     println(s"Executing SQL: $sql")
 
@@ -82,8 +82,12 @@ class DASPostgresqlTable(backend: PostgresqlBackend, defn: TableDefinition) exte
   }
 
   private def quoteIdentifier(ident: String): String = {
-    // naive approach
-    s""""$ident""""
+    // Identifiers are recorded, advertised, in their quoted form (schema, table, column names
+    // are all using the identifier found in Postgres metadata tables). One should use them as-is,
+    // quoted. The only thing we need to do is to escape any double quotes inside the identifier.
+    val escaped = ident.replace("\"", "\"\"")
+    // Wrap the entire identifier in double quotes
+    s""""$escaped""""
   }
 
   private def sortKeyToSql(sk: SortKey): String = {
