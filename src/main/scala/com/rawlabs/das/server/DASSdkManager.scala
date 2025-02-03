@@ -126,16 +126,17 @@ class DASSdkManager(implicit settings: RawSettings) extends StrictLogging {
    * @param dasId The DAS ID to retrieve.
    * @return The DAS instance.
    */
-  def getDAS(dasId: DASId): DASSdk = {
+  def getDAS(dasId: DASId): Option[DASSdk] = {
     // Pick the known config
-    val config = dasSdkConfigCacheLock.synchronized {
-      dasSdkConfigCache.getOrElseUpdate(
-        dasId,
-        getDASFromRemote(dasId).getOrElse(throw new IllegalArgumentException(s"DAS not found: $dasId"))
-      )
+    val maybeConfig = dasSdkConfigCacheLock.synchronized {
+      dasSdkConfigCache.get(dasId).orElse {
+        val remote = getDASFromRemote(dasId)
+        remote.foreach(config => dasSdkConfigCache.put(dasId, config))
+        remote
+      }
     }
     // Get the matching DAS from the cache
-    dasSdkCache.get(DASConfig(config.dasType, config.options))
+    maybeConfig.map(config => dasSdkCache.get(DASConfig(config.dasType, config.options)))
   }
 
   /**
