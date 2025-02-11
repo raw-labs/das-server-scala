@@ -14,6 +14,7 @@ package com.rawlabs.das.server.cache.queue
 
 import java.io.File
 import java.nio.file.{Files, Path}
+import java.util.UUID
 
 import scala.collection.concurrent.TrieMap
 import scala.collection.mutable.ArrayBuffer
@@ -92,6 +93,7 @@ class ArchivedDataStoreSpec
 
       // 1) Produce [1..100] via AkkaChronicleDataSource
       val dataSource = new AkkaChronicleDataSource[Int](
+        UUID.randomUUID(),
         task = new RangeProducingTask(1, 100),
         queueDir = queueDir,
         codec = intCodec,
@@ -162,6 +164,7 @@ class ArchivedDataStoreSpec
 
       // 1) Produce [1..100] and finalize (EOF)
       val dataSource = new AkkaChronicleDataSource[Int](
+        UUID.randomUUID(),
         task = new RangeProducingTask(1, 100),
         queueDir = queueDir,
         codec = intCodec,

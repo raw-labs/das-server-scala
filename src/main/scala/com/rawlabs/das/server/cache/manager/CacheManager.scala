@@ -20,18 +20,16 @@ import scala.concurrent.duration._
 import scala.util.control.NonFatal
 
 import com.rawlabs.das.server.cache.catalog._
-import com.rawlabs.das.server.cache.iterator.QualEvaluator
 import com.rawlabs.das.server.cache.queue._
 import com.rawlabs.protocol.das.v1.query.Qual
-import com.rawlabs.protocol.das.v1.tables.Row
 
 import akka.NotUsed
 import akka.actor.typed._
 import akka.actor.typed.scaladsl.AskPattern._
 import akka.actor.typed.scaladsl._
-import akka.stream.scaladsl.Source
 import akka.stream.scaladsl.{Flow, Source}
 import akka.util.Timeout
+import net.openhft.chronicle.queue.ExcerptTailer
 
 /**
  * A typed “CacheManager” actor for a specific data type T. It:
@@ -149,7 +147,12 @@ private class CacheManagerBehavior[T](
 
   // We'll keep track of child data source actors by cacheId
   private var dataSourceMap = Map.empty[UUID, ActorRef[ChronicleDataSource.ChronicleDataSourceCommand]]
-
+  private val dataSourceEventAdapter: ActorRef[ChronicleDataSource.DataSourceLifecycleEvent] =
+    ctx.messageAdapter[ChronicleDataSource.DataSourceLifecycleEvent] {
+      case ChronicleDataSource.DataProductionComplete(cacheId, size) => CacheManager.CacheComplete(cacheId, size)
+      case ChronicleDataSource.DataProductionError(cacheId, msg)     => CacheManager.CacheError(cacheId, msg)
+      case ChronicleDataSource.DataProductionVoluntaryStop(cacheId)  => CacheManager.CacheVoluntaryStop(cacheId)
+    }
   // On startup, cleanup bad caches and switch to running
   def create(): Behavior[CacheManager.Command[T]] = Behaviors.setup { ctx =>
     // do the cleanup now, synchronously, or in a blocking/future manner
@@ -257,6 +260,7 @@ private class CacheManagerBehavior[T](
     // 1) Find potential existing entries from the catalog
     val possible: List[CacheEntry] = catalog
       .listByDasId(dasId)
+      .filter(e => e.definition.tableId == definition.tableId)
       .filterNot(e =>
         e.state == CacheState.Error ||
           e.state == CacheState.VoluntaryStop ||
@@ -371,16 +375,13 @@ private class CacheManagerBehavior[T](
 
     ctx.spawn(
       ChronicleDataSource[T](
+        cacheId = cacheId,
         task = makeTask(),
         storage = storage,
         batchSize = batchSize,
         gracePeriod = gracePeriod,
         producerInterval = producerInterval,
-        callbackRef = Some(ctx.messageAdapter[ChronicleDataSource.DataSourceLifecycleEvent] {
-          case ChronicleDataSource.DataProductionComplete(size) => CacheManager.CacheComplete(cacheId, size)
-          case ChronicleDataSource.DataProductionError(msg)     => CacheManager.CacheError(cacheId, msg)
-          case ChronicleDataSource.DataProductionVoluntaryStop  => CacheManager.CacheVoluntaryStop(cacheId)
-        })),
+        callbackRef = Some(dataSourceEventAdapter)),
       s"datasource-$cacheId")
   }
 
@@ -395,10 +396,9 @@ private class CacheManagerBehavior[T](
     dsRef
       .ask[ChronicleDataSource.SubscribeResponse](replyTo => ChronicleDataSource.RequestSubscribe(replyTo))
       .map {
-        case ChronicleDataSource.Subscribed(consumerId) =>
+        case ChronicleDataSource.Subscribed(consumerId, tailer) =>
           val dir = new File(baseDirectory, cacheId.toString)
-          val tailerStorage = new ChronicleStorage[T](dir, codec)
-          val stage = new ChronicleSourceGraphStage[T](dsRef, codec, tailerStorage, consumerId)
+          val stage = new ChronicleSourceGraphStage[T](dsRef, codec, tailer, consumerId)
           Some(Source.fromGraph(stage))
 
         case ChronicleDataSource.AlreadyStopped =>
@@ -416,7 +416,10 @@ private class CacheManagerBehavior[T](
     val reader = archivedStore.newReader()
 
     Source.fromIterator(() => reader).watchTermination() { (mat, doneF) =>
-      doneF.onComplete(_ => reader.close())(executionContext)
+      doneF.onComplete { _ =>
+        reader.close()
+        archivedStore.close()
+      }(executionContext)
       mat
     }
   }

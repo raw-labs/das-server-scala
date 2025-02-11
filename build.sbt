@@ -84,7 +84,7 @@ lazy val root = (project in file("."))
       // Configuration
       "com.typesafe" % "config" % "1.4.3",
       // Protocol DAS
-      "com.raw-labs" %% "protocol-das" % "0.1.4-protocol-v1-SNAPSHOT",
+      "com.raw-labs" %% "protocol-das" % "1.0.0-beta2",
       // Akka Streams
       "com.typesafe.akka" %% "akka-actor-typed" % "2.8.8",
       "com.typesafe.akka" %% "akka-actor" % "2.8.8",
@@ -102,5 +102,7 @@ lazy val root = (project in file("."))
       // Web UI
       "com.typesafe.akka" %% "akka-http" % "10.5.3",
       "com.lihaoyi" %% "scalatags" % "0.13.1",
+      // Postgres
+      "org.postgresql" % "postgresql" % "42.7.4" % Test,
       // Testing
       "org.scalatest" %% "scalatest" % "3.2.19" % Test))

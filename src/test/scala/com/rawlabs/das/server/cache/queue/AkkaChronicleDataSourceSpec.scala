@@ -14,6 +14,7 @@ package com.rawlabs.das.server.cache.queue
 
 import java.io.File
 import java.nio.file.{Files, Path}
+import java.util.UUID
 
 import scala.concurrent.duration._
 import scala.concurrent.{ExecutionContext, Future}
@@ -89,6 +90,7 @@ class AkkaChronicleDataSourceSpec
       val queueDir = createTempDir("test-single-consumer-")
 
       val dataSource = new AkkaChronicleDataSource[Int](
+        UUID.randomUUID(),
         task = new RangeProducingTask(1, 10),
         queueDir = queueDir,
         codec = intCodec,
@@ -110,6 +112,7 @@ class AkkaChronicleDataSourceSpec
       val queueDir = createTempDir("test-multi-consumer-")
 
       val dataSource = new AkkaChronicleDataSource[Int](
+        UUID.randomUUID(),
         new RangeProducingTask(1, 5),
         queueDir,
         intCodec,
@@ -142,6 +145,7 @@ class AkkaChronicleDataSourceSpec
       val queueDir = createTempDir("test-late-consumer-")
 
       val dataSource = new AkkaChronicleDataSource[Int](
+        UUID.randomUUID(),
         new RangeProducingTask(1, 5),
         queueDir,
         intCodec,
@@ -177,6 +181,7 @@ class AkkaChronicleDataSourceSpec
       val queueDir = createTempDir("test-grace-stop-")
 
       val dataSource = new AkkaChronicleDataSource[Int](
+        UUID.randomUUID(),
         new RangeProducingTask(1, 999999),
         queueDir,
         intCodec,
@@ -204,6 +209,7 @@ class AkkaChronicleDataSourceSpec
       val queueDir = createTempDir("test-eof-")
 
       val dataSource = new AkkaChronicleDataSource[Int](
+        UUID.randomUUID(),
         new RangeProducingTask(1, 3),
         queueDir,
         intCodec,
@@ -244,6 +250,7 @@ class AkkaChronicleDataSourceSpec
       }
 
       val dataSource = new AkkaChronicleDataSource[Int](
+        UUID.randomUUID(),
         new FaultyTask,
         queueDir,
         intCodec,
@@ -271,6 +278,7 @@ class AkkaChronicleDataSourceSpec
       val queueDir = createTempDir("test-voluntary-stop-")
 
       val dataSource = new AkkaChronicleDataSource[Int](
+        UUID.randomUUID(),
         new RangeProducingTask(1, 1000000),
         queueDir,
         intCodec,
@@ -288,6 +296,7 @@ class AkkaChronicleDataSourceSpec
       val queueDir = createTempDir("test-partial-consumption-")
 
       val dataSource = new AkkaChronicleDataSource[Int](
+        UUID.randomUUID(),
         new RangeProducingTask(1, 5),
         queueDir,
         intCodec,
@@ -316,6 +325,7 @@ class AkkaChronicleDataSourceSpec
       val queueDir = createTempDir("test-no-consumers-")
 
       val dataSource = new AkkaChronicleDataSource[Int](
+        UUID.randomUUID(),
         new RangeProducingTask(1, 1000000),
         queueDir,
         intCodec,
@@ -338,6 +348,7 @@ class AkkaChronicleDataSourceSpec
       val queueDir = createTempDir("test-eof-backlog-")
 
       val dataSource = new AkkaChronicleDataSource[Int](
+        UUID.randomUUID(),
         new RangeProducingTask(1, 2),
         queueDir,
         intCodec,
@@ -370,6 +381,7 @@ class AkkaChronicleDataSourceSpec
       }
 
       val dataSource = new AkkaChronicleDataSource[Int](
+        UUID.randomUUID(),
         new ImmediateErrorTask,
         queueDir,
         intCodec,
@@ -387,6 +399,7 @@ class AkkaChronicleDataSourceSpec
       val queueDir = createTempDir("test-forced-shutdown-")
 
       val dataSource = new AkkaChronicleDataSource[Int](
+        UUID.randomUUID(),
         new RangeProducingTask(1, 100),
         queueDir,
         intCodec,

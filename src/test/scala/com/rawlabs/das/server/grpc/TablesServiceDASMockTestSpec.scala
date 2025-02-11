@@ -38,7 +38,7 @@ import com.rawlabs.protocol.das.v1.common.DASId
 import com.rawlabs.protocol.das.v1.query._
 import com.rawlabs.protocol.das.v1.services._
 import com.rawlabs.protocol.das.v1.tables._
-import com.rawlabs.protocol.das.v1.types.{Value, ValueInt}
+import com.rawlabs.protocol.das.v1.types.{Value, ValueInt, ValueString}
 
 import akka.actor.testkit.typed.scaladsl.TestProbe
 import akka.actor.typed.scaladsl.{AskPattern, Behaviors}
@@ -192,11 +192,21 @@ class TablesServiceDASMockTestSpec extends AnyWordSpec with Matchers with Before
   }
 
   // Helper to build a simple Qual with an int threshold
-  private def simpleQualProto(colName: String, op: Operator, intVal: Int): Qual = {
+  private def intQualProto(colName: String, op: Operator, intVal: Int): Qual = {
     val sq = SimpleQual
       .newBuilder()
       .setOperator(op)
       .setValue(Value.newBuilder().setInt(ValueInt.newBuilder().setV(intVal)))
+      .build()
+    Qual.newBuilder().setName(colName).setSimpleQual(sq).build()
+  }
+
+  // Helper to build a simple Qual with an int threshold
+  private def stringQualProto(colName: String, op: Operator, stringVal: String): Qual = {
+    val sq = SimpleQual
+      .newBuilder()
+      .setOperator(op)
+      .setValue(Value.newBuilder().setString(ValueString.newBuilder().setV(stringVal)))
       .build()
     Qual.newBuilder().setName(colName).setSimpleQual(sq).build()
   }
@@ -266,6 +276,7 @@ class TablesServiceDASMockTestSpec extends AnyWordSpec with Matchers with Before
         .setTableId(TableId.newBuilder().setName("small"))
         .setPlanId("plan-small-1")
         .setQuery(Query.newBuilder().addColumns("column1"))
+        .setMaxBatchSizeBytes(1024 * 1024)
         .build()
 
       val it = blockingStub.executeTable(req)
@@ -281,6 +292,7 @@ class TablesServiceDASMockTestSpec extends AnyWordSpec with Matchers with Before
         .setTableId(TableId.newBuilder().setName("big"))
         .setPlanId("plan-big-1")
         .setQuery(Query.newBuilder().addColumns("column2"))
+        .setMaxBatchSizeBytes(1024 * 1024)
         .build()
 
       val iter = blockingStub.executeTable(req)
@@ -301,6 +313,7 @@ class TablesServiceDASMockTestSpec extends AnyWordSpec with Matchers with Before
         .setTableId(TableId.newBuilder().setName("all_types"))
         .setPlanId("plan-alltypes-1")
         .setQuery(Query.newBuilder().addColumns("int_col").addColumns("string_col"))
+        .setMaxBatchSizeBytes(1024 * 1024)
         .build()
 
       val rows = collectRows(blockingStub.executeTable(req))
@@ -316,6 +329,7 @@ class TablesServiceDASMockTestSpec extends AnyWordSpec with Matchers with Before
         .setTableId(TableId.newBuilder().setName("in_memory"))
         .setPlanId("plan-inmem-1")
         .setQuery(Query.newBuilder().addColumns("column1"))
+        .setMaxBatchSizeBytes(1024 * 1024)
         .build()
 
       val rows = collectRows(blockingStub.executeTable(req))
@@ -332,6 +346,7 @@ class TablesServiceDASMockTestSpec extends AnyWordSpec with Matchers with Before
         .setTableId(TableId.newBuilder().setName("slow"))
         .setPlanId("plan-slow-1")
         .setQuery(Query.newBuilder().addColumns("column1"))
+        .setMaxBatchSizeBytes(1024 * 1024)
         .build()
 
       val rows = collectRows(blockingStub.executeTable(req))
@@ -350,6 +365,7 @@ class TablesServiceDASMockTestSpec extends AnyWordSpec with Matchers with Before
         .setTableId(TableId.newBuilder().setName("broken"))
         .setPlanId("plan-broken-1")
         .setQuery(Query.newBuilder().addColumns("column1"))
+        .setMaxBatchSizeBytes(1024 * 1024)
         .build()
 
       val ex = intercept[StatusRuntimeException] {
@@ -374,6 +390,7 @@ class TablesServiceDASMockTestSpec extends AnyWordSpec with Matchers with Before
         .setTableId(TableId.newBuilder().setName("slow"))
         .setPlanId("plan-slow-reuse-1")
         .setQuery(Query.newBuilder().addColumns("column1"))
+        .setMaxBatchSizeBytes(1024 * 1024)
         .build()
 
       // read 3 rows => then stop
@@ -405,9 +422,10 @@ class TablesServiceDASMockTestSpec extends AnyWordSpec with Matchers with Before
         .setQuery(
           Query
             .newBuilder()
-            .addQuals(simpleQualProto("column1", Operator.GREATER_THAN, 10)) // column1 > 10
+            .addQuals(intQualProto("column1", Operator.GREATER_THAN, 10)) // column1 > 10
             .addColumns("column1") // we only need column1 in this test
         )
+        .setMaxBatchSizeBytes(1024 * 1024)
         .build()
 
       // Read all matching rows => should get rows 11..100 => 90 total.
@@ -433,12 +451,33 @@ class TablesServiceDASMockTestSpec extends AnyWordSpec with Matchers with Before
         .setQuery(
           Query
             .newBuilder()
-            .addQuals(simpleQualProto("column1", Operator.GREATER_THAN, 50)) // column1 > 50
+            .addQuals(intQualProto("column1", Operator.GREATER_THAN, 50)) // column1 > 50
             .addColumns("column1"))
+        .setMaxBatchSizeBytes(1024 * 1024)
         .build()
 
       val rows2 = collectRows(blockingStub.executeTable(req2))
       rows2.size shouldBe 50
+
+      // STEP 3: Query again with an extra predicate. It should reuse the cache.
+      //
+      val req3 = ExecuteTableRequest
+        .newBuilder()
+        .setDasId(DASId.newBuilder().setId("1"))
+        .setTableId(TableId.newBuilder().setName("small"))
+        .setPlanId("plan-small-qual3")
+        .setQuery(
+          Query
+            .newBuilder()
+            .addQuals(intQualProto("column1", Operator.GREATER_THAN, 10)) // column1 > 10
+            .addQuals(stringQualProto("column2", Operator.EQUALS, "row_tmp_5"))
+            .addColumns("column1"))
+        .setMaxBatchSizeBytes(1024 * 1024)
+        .build()
+
+      val rows3 = collectRows(blockingStub.executeTable(req3))
+      // There is a row with "column2" == "row_tmp_5" but it's not in the range of column1 > 10
+      rows3.size shouldBe 0
 
       // This confirms the narrower qualifier is applied on top of the already-complete cache,
       // and we receive just the rows that match the new qualifier.

@@ -13,8 +13,10 @@
 package com.rawlabs.das.server.cache.queue
 
 import java.io.{Closeable, File}
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
 
+import scala.collection.mutable
 import scala.concurrent.duration._
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.control.NonFatal
@@ -26,8 +28,7 @@ import akka.stream._
 import akka.stream.scaladsl.Source
 import akka.stream.stage._
 import akka.util.Timeout
-import net.openhft.chronicle.queue.ExcerptTailer
-import net.openhft.chronicle.queue.{ChronicleQueue, ExcerptAppender}
+import net.openhft.chronicle.queue.{ChronicleQueue, ExcerptAppender, ExcerptTailer}
 
 /**
  * REQUIREMENTS & DESIGN NOTES
@@ -225,9 +226,9 @@ object ChronicleDataSource {
 
   // Outbound lifecycle events (if you want to notify another typed actor)
   sealed trait DataSourceLifecycleEvent
-  final case class DataProductionComplete(sizeInBytes: Long) extends DataSourceLifecycleEvent
-  final case class DataProductionError(msg: String) extends DataSourceLifecycleEvent
-  final case object DataProductionVoluntaryStop extends DataSourceLifecycleEvent
+  final case class DataProductionComplete(cacheId: UUID, sizeInBytes: Long) extends DataSourceLifecycleEvent
+  final case class DataProductionError(cacheId: UUID, msg: String) extends DataSourceLifecycleEvent
+  final case class DataProductionVoluntaryStop(cacheId: UUID) extends DataSourceLifecycleEvent
 
   // Commands (inbound)
   sealed trait ChronicleDataSourceCommand
@@ -247,7 +248,7 @@ object ChronicleDataSource {
 
   // Subscribe response messages
   sealed trait SubscribeResponse
-  final case class Subscribed(consumerId: Long) extends SubscribeResponse
+  final case class Subscribed(consumerId: Long, tailer: ExcerptTailer) extends SubscribeResponse
   final case object AlreadyStopped extends SubscribeResponse
 
   // Producer states
@@ -261,6 +262,7 @@ object ChronicleDataSource {
    * Create a typed Behavior for the data source.
    */
   def apply[T](
+      cacheId: UUID,
       task: DataProducingTask[T],
       storage: ChronicleStorage[T],
       batchSize: Int,
@@ -270,6 +272,7 @@ object ChronicleDataSource {
     Behaviors.setup { context =>
       Behaviors.withTimers { timers =>
         new ChronicleDataSourceBehavior[T](
+          cacheId,
           context,
           timers,
           task,
@@ -286,6 +289,7 @@ object ChronicleDataSource {
  * Internal logic class. We store mutable fields for simplicity, but we remain in typed style.
  */
 private class ChronicleDataSourceBehavior[T](
+    cacheId: UUID,
     ctx: ActorContext[ChronicleDataSource.ChronicleDataSourceCommand],
     timers: TimerScheduler[ChronicleDataSource.ChronicleDataSourceCommand],
     task: DataProducingTask[T],
@@ -301,12 +305,14 @@ private class ChronicleDataSourceBehavior[T](
   // mutable state
   private var state: ProducerState = Running
   private var iterOpt: Option[CloseableIterator[T]] = None
+  private val tailerMap = mutable.Map.empty[Long, ExcerptTailer]
   private var activeConsumers: Int = 0
   private val nextConsumerId = new AtomicLong(0L)
   private var graceTimerActive = false
 
   // Start production ticks
-  timers.startTimerAtFixedRate(ProducerTick, ProducerTick, producerInterval)
+  log.info(s"Starting producer ticks with a delay $producerInterval")
+  timers.startTimerWithFixedDelay(ProducerTick, ProducerTick, producerInterval)
 
   // Possibly schedule grace if no consumers
   checkGracePeriod()
@@ -322,6 +328,10 @@ private class ChronicleDataSourceBehavior[T](
         case ConsumerTerminated(cid) =>
           activeConsumers -= 1
           log.info(s"Consumer $cid terminated; activeConsumers=$activeConsumers")
+          tailerMap.remove(cid).foreach { tailer =>
+            log.debug(s"Closing tailer for consumer $cid")
+            tailer.close()
+          }
           checkGracePeriod()
           Behaviors.same
 
@@ -332,7 +342,7 @@ private class ChronicleDataSourceBehavior[T](
           Behaviors.same
 
         case GraceTimerExpired =>
-          ctx.log.info(s"Grace period expired, activeConsumers=$activeConsumers")
+          ctx.log.info(s"Grace period expired, activeConsumers=$activeConsumers, state=$state")
           if (activeConsumers == 0 && state == Running) {
             doVoluntaryStop()
           }
@@ -357,14 +367,20 @@ private class ChronicleDataSourceBehavior[T](
         activeConsumers += 1
         cancelGraceTimer()
         val cid = nextConsumerId.getAndIncrement()
-        replyTo ! Subscribed(cid)
+        // Create the tailer for this new consumer
+        val tailer = storage.newTailerToStart()
+        tailerMap(cid) = tailer
+        replyTo ! Subscribed(cid, tailer)
 
       case Eof =>
         // Let them read backlog
         activeConsumers += 1
         cancelGraceTimer()
         val cid = nextConsumerId.getAndIncrement()
-        replyTo ! Subscribed(cid)
+        // Create the tailer for this new consumer
+        val tailer = storage.newTailerToStart()
+        tailerMap(cid) = tailer
+        replyTo ! Subscribed(cid, tailer)
 
       case ErrorState | VoluntaryStop =>
         replyTo ! AlreadyStopped
@@ -396,7 +412,7 @@ private class ChronicleDataSourceBehavior[T](
         timers.cancel(ProducerTick)
 
         callbackRef.foreach { ref =>
-          ref ! DataProductionComplete(sizeInBytes = 0L)
+          ref ! DataProductionComplete(cacheId, sizeInBytes = 0L)
         }
       }
 
@@ -410,7 +426,7 @@ private class ChronicleDataSourceBehavior[T](
         timers.cancel(ProducerTick)
 
         callbackRef.foreach { ref =>
-          ref ! DataProductionError(e.getMessage)
+          ref ! DataProductionError(cacheId, e.getMessage)
         }
     }
   }
@@ -424,18 +440,21 @@ private class ChronicleDataSourceBehavior[T](
     timers.cancel(ProducerTick)
 
     callbackRef.foreach { ref =>
-      ref ! DataProductionVoluntaryStop
+      ref ! DataProductionVoluntaryStop(cacheId)
     }
   }
 
   // Grace timer handling
   private def checkGracePeriod(): Unit = {
+    log.debug(s"Checking grace period: $activeConsumers consumers, state=$state, graceTimerActive=$graceTimerActive")
     if (activeConsumers == 0 && state == Running && !graceTimerActive) {
+      log.info(s"No consumers, starting grace period of $gracePeriod.")
       timers.startSingleTimer(GraceTimerExpired, GraceTimerExpired, gracePeriod)
       graceTimerActive = true
     }
   }
   private def cancelGraceTimer(): Unit = {
+    log.info("Cancelling grace timer.")
     timers.cancel(GraceTimerExpired)
     graceTimerActive = false
   }
@@ -455,7 +474,7 @@ private class ChronicleDataSourceBehavior[T](
 class ChronicleSourceGraphStage[T](
     actor: ActorRef[ChronicleDataSource.ChronicleDataSourceCommand],
     codec: Codec[T],
-    storage: ChronicleStorage[T],
+    tailer: ExcerptTailer,
     consumerId: Long,
     pollInterval: FiniteDuration = 20.millis)(implicit ec: ExecutionContext)
     extends GraphStage[SourceShape[T]] {
@@ -468,12 +487,7 @@ class ChronicleSourceGraphStage[T](
   override def createLogic(attrs: Attributes): GraphStageLogic =
     new TimerGraphStageLogic(shape) with OutHandler {
 
-      private var tailer: ExcerptTailer = _
       private var completed: Boolean = false
-
-      override def preStart(): Unit = {
-        tailer = storage.newTailerToStart()
-      }
 
       private def tryReadWhileAvailable(): Unit = {
         while (!completed && isAvailable(out)) {
@@ -538,7 +552,7 @@ class ChronicleSourceGraphStage[T](
       override def postStop(): Unit = {
         // Notify the typed producer
         actor ! ChronicleDataSource.ConsumerTerminated(consumerId)
-        tailer.close()
+        // We don't call tailer.close() here because we don't own it.
         super.postStop()
       }
 
@@ -551,6 +565,7 @@ class ChronicleSourceGraphStage[T](
  * method to stop it.
  */
 class AkkaChronicleDataSource[T](
+    cacheId: UUID,
     task: DataProducingTask[T],
     queueDir: File,
     codec: Codec[T],
@@ -568,7 +583,7 @@ class AkkaChronicleDataSource[T](
 
   private val producerRef: ActorRef[ChronicleDataSourceCommand] =
     system.systemActorOf(
-      ChronicleDataSource[T](task, storage, batchSize, gracePeriod, producerInterval, callbackRef),
+      ChronicleDataSource[T](cacheId, task, storage, batchSize, gracePeriod, producerInterval, callbackRef),
       name = s"chronicle-datasource-${java.util.UUID.randomUUID()}")
 
   def actorRef: ActorRef[ChronicleDataSource.ChronicleDataSourceCommand] = producerRef
@@ -578,8 +593,8 @@ class AkkaChronicleDataSource[T](
     producerRef
       .ask[SubscribeResponse](replyTo => RequestSubscribe(replyTo))
       .map {
-        case Subscribed(cid) =>
-          val stage = new ChronicleSourceGraphStage[T](producerRef, codec, storage, cid)
+        case Subscribed(cid, tailer) =>
+          val stage = new ChronicleSourceGraphStage[T](producerRef, codec, tailer, cid)
           Some(Source.fromGraph(stage))
 
         case AlreadyStopped =>

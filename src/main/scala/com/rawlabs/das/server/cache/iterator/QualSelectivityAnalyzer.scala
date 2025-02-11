@@ -12,10 +12,13 @@
 
 package com.rawlabs.das.server.cache.iterator
 
+import java.time.{DateTimeException, LocalDate, LocalDateTime, ZoneOffset}
+
 import scala.jdk.CollectionConverters._
 
 import com.rawlabs.protocol.das.v1.query._
 import com.rawlabs.protocol.das.v1.types._
+import com.typesafe.scalalogging.StrictLogging
 
 /**
  * Analyzes two sets of Quals to see if `newQuals` is "more selective" than `oldQuals`.
@@ -23,17 +26,19 @@ import com.rawlabs.protocol.das.v1.types._
  * "More selective" means: 1) If a row satisfies `newQuals`, then it must satisfy `oldQuals` as well (new ⇒ old). 2)
  * `newQuals` introduces at least one strictly narrower constraint not already covered by `oldQuals`.
  */
-object QualSelectivityAnalyzer {
+object QualSelectivityAnalyzer extends StrictLogging {
 
   /**
    * @param oldQuals Existing qualifiers
    * @param newQuals New qualifiers
-   * @return None if `newQuals` is NOT strictly more selective than `oldQuals` Some(difference) if it is, where
-   *   'difference' is the subset of `newQuals` that imposes stricter constraints than already in `oldQuals`.
+   * @return None if `newQuals` is NOT as selective as `oldQuals`, Some(difference) if it is, where 'difference' is the
+   *   subset of `newQuals` that imposes new constraints missing in `oldQuals`.
    *
    * Examples: old=[x>10, y=2], new=[x>20, y=2, z<3] => Some([x>20, z<3]) Because "x>20,y=2,z<3" ⇒ "x>10,y=2", and we
    * have new constraints (x>20,z<3) old=[x>10, z=3], new=[x>10, k<2] => None Because "x>10,k<2" does NOT imply "z=3" =>
    * fails new⇒old check.
+   *
+   * The returned difference can be empty if qualifiers are the same.
    */
   def differenceIfMoreSelective(oldQuals: Seq[Qual], newQuals: Seq[Qual]): Option[Seq[Qual]] = {
 
@@ -49,18 +54,13 @@ object QualSelectivityAnalyzer {
     }
 
     // 2) Among newQuals, find which ones are not already implied by oldQuals
-    //    i.e. does old⇒ newQ? If not, then newQ is indeed a new, stricter constraint.
+    //    i.e. does old⇒ newQ?
     val additionalConstraints: Seq[Qual] =
       newQuals.filterNot(nq => isCoveredBy(nq, oldQuals))
-    // "isCoveredBy(nq, oldQuals)" = oldQuals contains some oldQ that => nq.
-    // If true, it's already implied by old. If false, it's strictly new.
 
-    // 3) If no additional constraints => not "strictly" more selective => None
-    if (additionalConstraints.isEmpty) {
-      None
-    } else {
-      Some(additionalConstraints)
-    }
+    // It is possible additionalConstraints is empty. It means
+    // the cache exactly covers the predicates.
+    Some(additionalConstraints)
   }
 
   /**
@@ -103,13 +103,7 @@ object QualSelectivityAnalyzer {
   //  SimpleQual => SimpleQual
   // ----------------------------------------------------------------
   private def impliesSimple(a: SimpleQual, b: SimpleQual): Boolean = {
-    if (a.getOperator == b.getOperator) {
-      // same operator => compare thresholds
-      canOperatorAImplyB(a.getOperator, a.getValue, b.getOperator, b.getValue)
-    } else {
-      // different operators => maybe x>20 => x>10, etc.
-      canOperatorAImplyB(a.getOperator, a.getValue, b.getOperator, b.getValue)
-    }
+    canOperatorAImplyB(a.getOperator, a.getValue, b.getOperator, b.getValue)
   }
 
   // A minimal approach for numeric comparisons:
@@ -172,12 +166,55 @@ object QualSelectivityAnalyzer {
   private def valueAsBigDecimal(v: Value): Option[BigDecimal] = {
     if (v == null) return None
     v.getValueCase match {
+      case Value.ValueCase.BYTE    => Some(BigDecimal(v.getByte.getV))
+      case Value.ValueCase.SHORT   => Some(BigDecimal(v.getShort.getV))
       case Value.ValueCase.INT     => Some(BigDecimal(v.getInt.getV))
       case Value.ValueCase.LONG    => Some(BigDecimal(v.getLong.getV))
       case Value.ValueCase.FLOAT   => Some(BigDecimal.decimal(v.getFloat.getV.toDouble))
       case Value.ValueCase.DOUBLE  => Some(BigDecimal.decimal(v.getDouble.getV))
       case Value.ValueCase.DECIMAL => Some(BigDecimal(v.getDecimal.getV))
-      // You could handle BYTE, SHORT, etc. similarly
+      case Value.ValueCase.DATE    =>
+        // Convert date -> nanoseconds since epoch. TIMESTAMP is also
+        // converted to nanoseconds, so we can compare them.
+        val d = v.getDate
+        try {
+          val localDate = LocalDate.of(d.getYear, d.getMonth, d.getDay)
+          // toEpochDay => number of days since 1970-01-01
+          val days = localDate.toEpochDay
+          // 1 day = 24 * 3600 * 1,000,000,000 nanoseconds
+          val nanos = days * 24L * 3600L * 1_000_000_000L
+          Some(BigDecimal(nanos))
+        } catch {
+          case _: DateTimeException =>
+            logger.warn("Failed to convert date to BigDecimal (nanoseconds): {}", v)
+            None
+        }
+
+      case Value.ValueCase.TIME =>
+        // Convert time -> nanoseconds since midnight
+        val t = v.getTime
+        val totalSeconds = t.getHour * 3600L + t.getMinute * 60L + t.getSecond
+        // totalSeconds in nanoseconds + the existing nano offset
+        val nanos = totalSeconds * 1_000_000_000L + t.getNano.toLong
+        Some(BigDecimal(nanos))
+
+      case Value.ValueCase.TIMESTAMP =>
+        // Convert timestamp -> nanoseconds since epoch. DATE is also
+        // converted to nanoseconds, so we can compare them.
+        val ts = v.getTimestamp
+        try {
+          val ldt =
+            LocalDateTime.of(ts.getYear, ts.getMonth, ts.getDay, ts.getHour, ts.getMinute, ts.getSecond, ts.getNano)
+          // Convert to epoch second in UTC (assuming UTC-based timestamps)
+          val epochSec = ldt.toEpochSecond(ZoneOffset.UTC)
+          // Combine the second-based offset with the fractional nano
+          val nanos = epochSec * 1_000_000_000L + ts.getNano.toLong
+          Some(BigDecimal(nanos))
+        } catch {
+          case _: DateTimeException =>
+            logger.warn("Failed to convert timestamp to BigDecimal (nanoseconds): {}", v)
+            None
+        }
       case _ => None
     }
   }

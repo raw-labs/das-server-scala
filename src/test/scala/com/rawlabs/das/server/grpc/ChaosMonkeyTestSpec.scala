@@ -130,7 +130,7 @@ class ChaosMonkeyTestSpec extends AnyWordSpec with Matchers with BeforeAndAfterA
     val initialManager = spawnManager("mgr-main")
 
     // Build the table service with that manager
-    val serviceImpl = new TableServiceGrpcImpl(dasSdkManager, initialManager, maxChunkSize = 1)
+    val serviceImpl = new TableServiceGrpcImpl(dasSdkManager, initialManager)
 
     server = InProcessServerBuilder
       .forName(serverName)
@@ -304,6 +304,7 @@ class ChaosMonkeyTestSpec extends AnyWordSpec with Matchers with BeforeAndAfterA
             .setTableId(TableId.newBuilder().setName("small"))
             .setPlanId(s"cancelTest-$i-${UUID.randomUUID().toString.take(6)}")
             .setQuery(Query.newBuilder().addColumns("column1"))
+            .setMaxBatchSizeBytes(1024 * 1024)
             .build()
 
           val it = stub.executeTable(req)

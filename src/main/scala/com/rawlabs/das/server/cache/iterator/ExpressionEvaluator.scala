@@ -12,6 +12,9 @@
 
 package com.rawlabs.das.server.cache.iterator
 
+import java.time.{LocalDate, LocalDateTime, ZoneOffset}
+import java.util.regex.Pattern
+
 import scala.jdk.CollectionConverters._
 
 import com.rawlabs.protocol.das.v1.query._
@@ -55,6 +58,8 @@ case class IntervalVal(years: Int, months: Int, days: Int, hours: Int, minutes: 
 case class RecordVal(atts: Seq[(String, ValueWrapper)]) extends ValueWrapper
 case class ListVal(vals: Seq[ValueWrapper]) extends ValueWrapper
 
+case class UnsupportedExpressionError(msg: String) extends Exception(msg)
+
 object ExpressionEvaluator {
 
   // ============================
@@ -80,7 +85,7 @@ object ExpressionEvaluator {
     val colOpt = row.getColumnsList.asScala.find(_.getName == colName)
     colOpt match {
       case Some(col) => toValueWrapper(col.getData)
-      case None      => NullVal
+      case None      => throw UnsupportedExpressionError(s"Column not found: $colName")
     }
   }
 
@@ -133,7 +138,7 @@ object ExpressionEvaluator {
           val lst = value.getList.getValuesList.asScala.map(toValueWrapper)
           ListVal(lst.toSeq)
         case _ =>
-          NullVal
+          throw UnsupportedExpressionError(s"Unsupported value type: ${value.getValueCase}")
       }
   }
 
@@ -189,7 +194,7 @@ object ExpressionEvaluator {
     (lhs, rhs) match {
       case (n1: NumericVal, n2: NumericVal) =>
         DecimalVal(numericToBigDecimal(n1) + numericToBigDecimal(n2))
-      case _ => NullVal
+      case _ => throw UnsupportedExpressionError(s"Unsupported types for PLUS: $lhs, $rhs")
     }
   }
 
@@ -197,7 +202,7 @@ object ExpressionEvaluator {
     (lhs, rhs) match {
       case (n1: NumericVal, n2: NumericVal) =>
         DecimalVal(numericToBigDecimal(n1) - numericToBigDecimal(n2))
-      case _ => NullVal
+      case _ => throw UnsupportedExpressionError(s"Unsupported types for MINUS: $lhs, $rhs")
     }
   }
 
@@ -205,7 +210,7 @@ object ExpressionEvaluator {
     (lhs, rhs) match {
       case (n1: NumericVal, n2: NumericVal) =>
         DecimalVal(numericToBigDecimal(n1) * numericToBigDecimal(n2))
-      case _ => NullVal
+      case _ => throw UnsupportedExpressionError(s"Unsupported types for TIMES: $lhs, $rhs")
     }
   }
 
@@ -215,7 +220,7 @@ object ExpressionEvaluator {
         val d2 = numericToBigDecimal(n2)
         if (d2 == 0) NullVal
         else DecimalVal(numericToBigDecimal(n1) / d2)
-      case _ => NullVal
+      case _ => throw UnsupportedExpressionError(s"Unsupported types for DIV: $lhs, $rhs")
     }
   }
 
@@ -225,7 +230,7 @@ object ExpressionEvaluator {
         val d2 = numericToBigDecimal(n2)
         if (d2 == 0) NullVal
         else DecimalVal(numericToBigDecimal(n1).remainder(d2.bigDecimal))
-      case _ => NullVal
+      case _ => throw UnsupportedExpressionError(s"Unsupported types for MOD: $lhs, $rhs")
     }
   }
 
@@ -260,12 +265,18 @@ object ExpressionEvaluator {
       case (DateVal(y1, m1, d1), DateVal(y2, m2, d2)) =>
         (y1 == y2) && (m1 == m2) && (d1 == d2)
 
+      case (dateVal: DateVal, timestampVal: TimestampVal) =>
+        dateValToNanos(dateVal) == timestampValToNanos(timestampVal)
+
       case (TimeVal(h1, m1, s1, n1), TimeVal(h2, m2, s2, n2)) =>
         h1 == h2 && m1 == m2 && s1 == s2 && n1 == n2
 
       case (TimestampVal(y1, mo1, d1, h1, mi1, s1, n1), TimestampVal(y2, mo2, d2, h2, mi2, s2, n2)) =>
         y1 == y2 && mo1 == mo2 && d1 == d2 &&
         h1 == h2 && mi1 == mi2 && s1 == s2 && n1 == n2
+
+      case (timestampVal: TimestampVal, dateVal: DateVal) =>
+        timestampValToNanos(timestampVal) == dateValToNanos(dateVal)
 
       case (IntervalVal(yrs1, mon1, da1, hr1, min1, sec1, mic1), IntervalVal(yrs2, mon2, da2, hr2, min2, sec2, mic2)) =>
         yrs1 == yrs2 && mon1 == mon2 && da1 == da2 &&
@@ -281,7 +292,7 @@ object ExpressionEvaluator {
           evalEquals(x, y)
         }
 
-      case _ => false
+      case _ => throw UnsupportedExpressionError(s"Unsupported types for EQUALS: $lhs, $rhs")
     }
   }
 
@@ -290,16 +301,25 @@ object ExpressionEvaluator {
       case (NullVal, _) => false
       case (_, NullVal) => false
 
-      // Numeric
       case (n1: NumericVal, n2: NumericVal) =>
         numericToBigDecimal(n1) < numericToBigDecimal(n2)
 
-      // Strings
       case (StringVal(s1), StringVal(s2)) =>
         s1 < s2
 
-      // (Add date/time if needed)
-      case _ => false
+      case (d1: DateVal, d2: DateVal) =>
+        dateValToNanos(d1) < dateValToNanos(d2)
+
+      case (t1: TimestampVal, t2: TimestampVal) =>
+        timestampValToNanos(t1) < timestampValToNanos(t2)
+
+      case (dateVal: DateVal, timestampVal: TimestampVal) =>
+        dateValToNanos(dateVal) < timestampValToNanos(timestampVal)
+
+      case (timestampVal: TimestampVal, dateVal: DateVal) =>
+        timestampValToNanos(timestampVal) < dateValToNanos(dateVal)
+
+      case _ => throw UnsupportedExpressionError(s"Unsupported types for LESS_THAN: $lhs, $rhs")
     }
   }
 
@@ -311,31 +331,88 @@ object ExpressionEvaluator {
         numericToBigDecimal(n1) > numericToBigDecimal(n2)
       case (StringVal(s1), StringVal(s2)) =>
         s1 > s2
-      case _ => false
+
+      case (d1: DateVal, d2: DateVal) =>
+        dateValToNanos(d1) > dateValToNanos(d2)
+
+      case (t1: TimestampVal, t2: TimestampVal) =>
+        timestampValToNanos(t1) > timestampValToNanos(t2)
+
+      case (dateVal: DateVal, timestampVal: TimestampVal) =>
+        dateValToNanos(dateVal) > timestampValToNanos(timestampVal)
+
+      case (timestampVal: TimestampVal, dateVal: DateVal) =>
+        timestampValToNanos(timestampVal) > dateValToNanos(dateVal)
+
+      case _ => throw UnsupportedExpressionError(s"Unsupported types for GREATER_THAN: $lhs, $rhs")
     }
+  }
+
+  private def convertLikeToRegex(likePattern: String): String = {
+    val sb = new StringBuilder
+    likePattern.foreach {
+      case '%'                               => sb.append(".*")
+      case '_'                               => sb.append('.')
+      case c if ".^$+?{}[]\\|()".contains(c) =>
+        // escape regex special chars
+        sb.append('\\').append(c)
+      case other =>
+        sb.append(other)
+    }
+    sb.toString
   }
 
   // 4.3 LIKE / ILIKE
   private def evalLike(lhs: ValueWrapper, rhs: ValueWrapper, caseInsensitive: Boolean): Boolean = {
     (lhs, rhs) match {
-      case (StringVal(a), StringVal(b)) =>
-        if (caseInsensitive) a.toLowerCase.contains(b.toLowerCase) else a.contains(b)
-      case _ => false
+      case (StringVal(text), StringVal(pattern)) =>
+        val regex = convertLikeToRegex(pattern)
+        val flags = if (caseInsensitive) Pattern.CASE_INSENSITIVE else 0
+        val p = Pattern.compile(regex, flags)
+        p.matcher(text).matches()
+      case _ =>
+        throw UnsupportedExpressionError(s"Unsupported types for LIKE/ILIKE: $lhs, $rhs")
     }
   }
 
-  // 4.4 Boolean AND / OR
+  // 4.4 Boolean AND / OR, Postgres 3-valued logic
   private def evalAnd(lhs: ValueWrapper, rhs: ValueWrapper): ValueWrapper = {
     (lhs, rhs) match {
       case (BoolVal(a), BoolVal(b)) => BoolVal(a && b)
-      case _                        => BoolVal(false)
+      case (NullVal, v) =>
+        if (v == BoolVal(false)) BoolVal(false) // ? AND false
+        else NullVal
+      case (v, NullVal) =>
+        if (v == BoolVal(false)) BoolVal(false)
+        else NullVal
+      case _ => throw UnsupportedExpressionError(s"Unsupported types for AND: $lhs, $rhs")
     }
   }
 
   private def evalOr(lhs: ValueWrapper, rhs: ValueWrapper): ValueWrapper = {
     (lhs, rhs) match {
       case (BoolVal(a), BoolVal(b)) => BoolVal(a || b)
-      case _                        => BoolVal(false)
+      case (NullVal, v) =>
+        if (v == BoolVal(true)) BoolVal(true) // ? OR true
+        else NullVal
+      case (v, NullVal) =>
+        if (v == BoolVal(true)) BoolVal(true)
+        else NullVal
+      case _ => throw UnsupportedExpressionError(s"Unsupported types for OR: $lhs, $rhs")
     }
+  }
+
+  private def dateValToNanos(v: DateVal): Long = {
+    // Convert date to midnight in UTC, then to epoch second, then multiply by 1e9
+    val ld = LocalDate.of(v.year, v.month, v.day).atStartOfDay(ZoneOffset.UTC)
+    val epochSec = ld.toEpochSecond
+    epochSec * 1_000_000_000L // convert seconds to nanoseconds
+  }
+
+  private def timestampValToNanos(v: TimestampVal): Long = {
+    // Convert timestamp to epoch second in UTC, then add the fractional nanos
+    val ldt = LocalDateTime.of(v.year, v.month, v.day, v.hour, v.minute, v.second, v.nano)
+    val epochSec = ldt.toEpochSecond(ZoneOffset.UTC)
+    epochSec * 1_000_000_000L + v.nano.toLong
   }
 }

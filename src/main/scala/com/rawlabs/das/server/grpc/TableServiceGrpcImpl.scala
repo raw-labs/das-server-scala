@@ -12,14 +12,12 @@
 
 package com.rawlabs.das.server.grpc
 
-import java.io.Closeable
-import java.util.Optional
+import java.time.Instant
 
-import scala.collection.mutable
 import scala.concurrent.ExecutionContext
+import scala.concurrent.duration.{DurationInt, FiniteDuration}
 import scala.jdk.CollectionConverters._
 import scala.jdk.OptionConverters._
-import scala.util.control.NonFatal
 import scala.util.{Failure, Success}
 
 import com.rawlabs.das.sdk.DASExecuteResult
@@ -36,10 +34,10 @@ import com.typesafe.scalalogging.StrictLogging
 import akka.NotUsed
 import akka.actor.typed.scaladsl.AskPattern.Askable
 import akka.actor.typed.{ActorRef, Scheduler}
-import akka.stream.Materializer
-import akka.stream.scaladsl.{Flow, Source}
-import io.grpc.stub.StreamObserver
-import io.grpc.{Context, Status, StatusRuntimeException}
+import akka.stream.scaladsl.{Flow, Keep, Sink, Source}
+import akka.stream.{KillSwitches, Materializer, UniqueKillSwitch}
+import io.grpc.stub.{ServerCallStreamObserver, StreamObserver}
+import io.grpc.{Status, StatusRuntimeException}
 
 /**
  * Implementation of the gRPC service for handling table-related operations.
@@ -50,7 +48,7 @@ import io.grpc.{Context, Status, StatusRuntimeException}
 class TableServiceGrpcImpl(
     provider: DASSdkManager,
     cacheManager: ActorRef[CacheManager.Command[Row]],
-    maxChunkSize: Int = 1000)(
+    batchLatency: FiniteDuration = 500.millis)(
     implicit val ec: ExecutionContext,
     implicit val materializer: Materializer,
     implicit val scheduler: Scheduler)
@@ -192,6 +190,26 @@ class TableServiceGrpcImpl(
   override def executeTable(request: ExecuteTableRequest, responseObserver: StreamObserver[Rows]): Unit = {
     logger.debug(s"Executing query for Table ID: ${request.getTableId.getName}")
 
+    // Check if the responseObserver is a ServerCallStreamObserver. If so, we can set an onCancel handler.
+    val maybeServerCallObs: Option[ServerCallStreamObserver[Rows]] = responseObserver match {
+      case sco: ServerCallStreamObserver[Rows] => Some(sco)
+      case _ =>
+        logger.warn("ResponseObserver is not a ServerCallStreamObserver. onCancelHandler not available.")
+        None
+    }
+
+    // We'll keep a reference to the kill switch or a "cancel" function
+    val killSwitchRef = new java.util.concurrent.atomic.AtomicReference[Option[UniqueKillSwitch]](None)
+
+    // If we have a ServerCallStreamObserver, set the handler *immediately*. This isn't possible later.
+    maybeServerCallObs.foreach { sco =>
+      sco.setOnCancelHandler(() => {
+        logger.warn(s"Client canceled for planID=${request.getPlanId}, shutting down stream if possible.")
+        // Use whatever is in killSwitchRef at the time of cancellation:
+        val maybeKs = killSwitchRef.get()
+        maybeKs.foreach(_.shutdown())
+      })
+    }
     // 1) Attempt to get the table from provider
     val tableOpt = provider.getDAS(request.getDasId).getTable(request.getTableId.getName).toScala
     tableOpt match {
@@ -206,6 +224,18 @@ class TableServiceGrpcImpl(
         val quals = request.getQuery.getQualsList.asScala.toSeq
         val columns = request.getQuery.getColumnsList.asScala.toSeq
         val sortKeys = request.getQuery.getSortKeysList.asScala.toSeq
+        val minCreationDate = {
+          if (request.hasMaxCacheAge) {
+            // The request embeds a maxCacheAge. Use it to set a minCreationDate.
+            val maxCacheAge = request.getMaxCacheAge
+            val nanos = maxCacheAge.getSeconds * 1_000_000_000 + maxCacheAge.getNanos
+            assert(nanos >= 0, "maxCacheAge must be non-negative")
+            Some(Instant.now().minusNanos(nanos))
+          } else {
+            // No cache age specified. Don't use caches.
+            None
+          }
+        }
 
         // Build a data-producing task for the table, if the cache manager needs to create a new cache
         val makeTask = () =>
@@ -239,7 +269,7 @@ class TableServiceGrpcImpl(
                 quals = quals,
                 columns = columns,
                 sortKeys = sortKeys),
-              minCreationDate = None,
+              minCreationDate = minCreationDate,
               makeTask = makeTask,
               codec = new RowCodec,
               replyTo = replyTo))
@@ -286,7 +316,10 @@ class TableServiceGrpcImpl(
                     .mapMaterializedValue(_ => NotUsed)
 
                 // 5) Chunk the final stream and push to gRPC observer
-                runStreamedResult(finalSource, request, responseObserver)
+                val (doneF, ks) = runStreamedResult(finalSource, request, responseObserver, maybeServerCallObs)
+                // 6) Set the missing kill switch
+                killSwitchRef.set(Some(ks))
+                doneF
             }
         }
     }
@@ -299,40 +332,72 @@ class TableServiceGrpcImpl(
   private def runStreamedResult(
       source: Source[Row, NotUsed],
       request: ExecuteTableRequest,
-      responseObserver: StreamObserver[Rows]): Unit = {
+      responseObserver: StreamObserver[Rows],
+      maybeServerCallObs: Option[ServerCallStreamObserver[Rows]]) = {
 
-    val chunked: Source[Seq[Row], NotUsed] = {
-      if (maxChunkSize > 1) {
-        source.grouped(maxChunkSize)
+    // Define the maximum bytes per chunk
+    val clientMaxBytes = {
+      if (request.hasMaxBatchSizeBytes) {
+        // We multiply by 3/4 to leave some room for gRPC overhead
+        request.getMaxBatchSizeBytes * 3 / 4
       } else {
-        // If maxChunkSize is 1, we don't need to group
-        source.map(row => Seq(row))
+        // Default to 2M
+        2_000_000
       }
+
     }
 
-    val rowBatches = chunked.map { group =>
-      Rows.newBuilder().addAllRows(group.asJava).build()
-    }
-
-    val context = io.grpc.Context.current()
-
-    val doneF = rowBatches.runForeach { rowsProto =>
-      if (context.isCancelled) {
-        logger.warn(s"Context cancelled for planID=${request.getPlanId}, stopping stream.")
-        // We can throw to terminate the stream
-        throw new RuntimeException("gRPC context canceled")
+    // Build a stream that splits the rows by the client's max byte size
+    val rowBatches = source
+      // Group rows by size (but also by time if source is slow). Assume a minimum size of 8 bytes per row.
+      .groupedWeightedWithin(clientMaxBytes, batchLatency)(row => Math.max(row.getSerializedSize.toLong, 8))
+      .map { batchOfRows =>
+        Rows
+          .newBuilder()
+          .addAllRows(batchOfRows.asJava)
+          .build()
       }
-      responseObserver.onNext(rowsProto)
-    }(materializer)
 
+    // Create a KillSwitch and integrate it within the stream
+    val (killSwitch, doneF) =
+      rowBatches
+        .viaMat(KillSwitches.single[Rows])(Keep.right) // Keep the KillSwitch
+        .toMat(Sink.foreach { rowsProto =>
+          logger.debug(s"Sending ${rowsProto.getRowsCount} rows to client for planID=${request.getPlanId}.")
+          // Push data to the client
+          responseObserver.onNext(rowsProto)
+        })(Keep.both) // Keep both KillSwitch and Future[Done]
+        .run()
+
+    // When the stream completes, either successfully or with a failure:
     doneF.onComplete {
       case Success(_) =>
+        // If it's a normal completion, check if the stream was cancelled
         logger.debug(s"Streaming completed successfully for planID=${request.getPlanId}.")
-        responseObserver.onCompleted()
+        maybeServerCallObs match {
+          case Some(sco) if !sco.isCancelled =>
+            sco.onCompleted()
+          case _ =>
+            // Not a ServerCallStreamObserver or already cancelled
+            responseObserver.onCompleted()
+        }
+
       case Failure(ex) =>
+        // If the stream fails or is forcibly shutdown, log it and call onError if not cancelled
         logger.error(s"Error during streaming for planID=${request.getPlanId}.", ex)
-        responseObserver.onError(new StatusRuntimeException(Status.INTERNAL.withDescription("Error during streaming")))
+        maybeServerCallObs match {
+          case Some(sco) if !sco.isCancelled =>
+            sco.onError(
+              new StatusRuntimeException(Status.INTERNAL.withDescription(s"Error during streaming: ${ex.getMessage}")))
+          case _ =>
+            responseObserver.onError(
+              new StatusRuntimeException(Status.INTERNAL.withDescription(s"Error during streaming: ${ex.getMessage}")))
+          // If cancelled, no need to call onError (client is gone).
+        }
     }(ec)
+
+    // Return the Future and the KillSwitch
+    (doneF, killSwitch)
   }
 
   /**

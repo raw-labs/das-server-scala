@@ -104,6 +104,16 @@ class ExpressionEvaluatorSpec extends AnyFunSpec with Matchers {
     Value.newBuilder().setList(listBuilder).build()
   }
 
+  // Utility to build a Row with one column named `name` containing a string `value`.
+  private def buildStringColumn(name: String, value: String): Row = {
+    buildRow(buildColumn(name, buildStringValue(value)))
+  }
+
+  // For convenience, define a helper to build a BinaryOp(Operator.LIKE, colRef, Literal(...))
+  private def likeExpr(op: Operator, colName: String, pattern: String): Expression = {
+    BinaryOp(op, ColumnRef(colName), Literal(buildStringValue(pattern)))
+  }
+
   // -----------------------------------
   // Tests
   // -----------------------------------
@@ -114,11 +124,9 @@ class ExpressionEvaluatorSpec extends AnyFunSpec with Matchers {
 
       val exprA = ColumnRef("colA")
       val exprB = ColumnRef("colB")
-      val exprMissing = ColumnRef("missing")
 
       ExpressionEvaluator.evaluateExpression(row, exprA) shouldBe IntVal(42)
       ExpressionEvaluator.evaluateExpression(row, exprB) shouldBe StringVal("Hello")
-      ExpressionEvaluator.evaluateExpression(row, exprMissing) shouldBe NullVal
     }
 
     it("should evaluate a Literal correctly (simple types)") {
@@ -279,42 +287,66 @@ class ExpressionEvaluatorSpec extends AnyFunSpec with Matchers {
         cmp(Operator.LESS_THAN_OR_EQUAL, ColumnRef("c"), ColumnRef("b"))) shouldBe BoolVal(false)
     }
 
-    it("should handle LIKE and ILIKE operators") {
-      val row = buildRow(buildColumn("txt", buildStringValue("HelloWorld")))
+    it("should handle plain substring or exact match if pattern uses % explicitly") {
+      val row = buildStringColumn("txt", "HelloWorld")
 
-      def like(op: Operator, lhs: Expression, rhs: Expression) = BinaryOp(op, lhs, rhs)
+      // 'HelloWorld' LIKE 'Hello%' => true
+      ExpressionEvaluator.evaluateExpression(row, likeExpr(Operator.LIKE, "txt", "Hello%")) shouldBe BoolVal(true)
 
-      // LIKE
-      ExpressionEvaluator.evaluateExpression(
-        row,
-        like(Operator.LIKE, ColumnRef("txt"), Literal(buildStringValue("World")))) shouldBe BoolVal(true)
-      ExpressionEvaluator.evaluateExpression(
-        row,
-        like(Operator.LIKE, ColumnRef("txt"), Literal(buildStringValue("world")))) shouldBe BoolVal(false)
+      // 'HelloWorld' LIKE '%World' => true
+      ExpressionEvaluator.evaluateExpression(row, likeExpr(Operator.LIKE, "txt", "%World")) shouldBe BoolVal(true)
 
-      // NOT_LIKE
-      ExpressionEvaluator.evaluateExpression(
-        row,
-        like(Operator.NOT_LIKE, ColumnRef("txt"), Literal(buildStringValue("World")))) shouldBe BoolVal(false)
-      ExpressionEvaluator.evaluateExpression(
-        row,
-        like(Operator.NOT_LIKE, ColumnRef("txt"), Literal(buildStringValue("world")))) shouldBe BoolVal(true)
+      // 'HelloWorld' LIKE '%Hello%' => true (substring in the middle)
+      ExpressionEvaluator.evaluateExpression(row, likeExpr(Operator.LIKE, "txt", "%Hello%")) shouldBe BoolVal(true)
 
-      // ILIKE
-      ExpressionEvaluator.evaluateExpression(
-        row,
-        like(Operator.ILIKE, ColumnRef("txt"), Literal(buildStringValue("world")))) shouldBe BoolVal(true)
-      ExpressionEvaluator.evaluateExpression(
-        row,
-        like(Operator.ILIKE, ColumnRef("txt"), Literal(buildStringValue("HELLO")))) shouldBe BoolVal(true)
+      // 'HelloWorld' LIKE 'world%' => false (case sensitive by default)
+      ExpressionEvaluator.evaluateExpression(row, likeExpr(Operator.LIKE, "txt", "world%")) shouldBe BoolVal(false)
+    }
 
-      // NOT_ILIKE
-      ExpressionEvaluator.evaluateExpression(
-        row,
-        like(Operator.NOT_ILIKE, ColumnRef("txt"), Literal(buildStringValue("world")))) shouldBe BoolVal(false)
-      ExpressionEvaluator.evaluateExpression(
-        row,
-        like(Operator.NOT_ILIKE, ColumnRef("txt"), Literal(buildStringValue("HELLO")))) shouldBe BoolVal(false)
+    it("should support underscore _ as a single-character wildcard") {
+      val row = buildStringColumn("txt", "HelloWorld")
+
+      // 'HelloWorld' LIKE 'HelloWorl_' => true => the underscore matches exactly one character 'd'
+      ExpressionEvaluator.evaluateExpression(row, likeExpr(Operator.LIKE, "txt", "HelloWorl_")) shouldBe BoolVal(true)
+
+      // 'HelloWorld' LIKE 'Hell_' => false => pattern is only 5 chars total, cannot match 'Hello'
+      ExpressionEvaluator.evaluateExpression(row, likeExpr(Operator.LIKE, "txt", "Hell_")) shouldBe BoolVal(false)
+
+      // 'HelloWorld' LIKE '%orl_' => true => underscores one char 'd' at the end
+      ExpressionEvaluator.evaluateExpression(row, likeExpr(Operator.LIKE, "txt", "%orl_")) shouldBe BoolVal(true)
+    }
+
+    it("should handle NOT_LIKE inversely") {
+      val row = buildStringColumn("txt", "HelloWorld")
+
+      // 'HelloWorld' NOT LIKE 'Hello%' => false
+      ExpressionEvaluator.evaluateExpression(row, likeExpr(Operator.NOT_LIKE, "txt", "Hello%")) shouldBe BoolVal(false)
+
+      // 'HelloWorld' NOT LIKE '%hello%' => true (case sensitive mismatch)
+      ExpressionEvaluator.evaluateExpression(row, likeExpr(Operator.NOT_LIKE, "txt", "%hello%")) shouldBe BoolVal(true)
+    }
+
+    it("should handle ILIKE case-insensitively") {
+      val row = buildStringColumn("txt", "HelloWorld")
+
+      // 'HelloWorld' ILIKE '%world' => true => ignoring case
+      ExpressionEvaluator.evaluateExpression(row, likeExpr(Operator.ILIKE, "txt", "%world")) shouldBe BoolVal(true)
+
+      // 'HelloWorld' ILIKE 'hell_%' => true => ignoring case
+      ExpressionEvaluator.evaluateExpression(row, likeExpr(Operator.ILIKE, "txt", "hell_%")) shouldBe BoolVal(true)
+
+      // 'HelloWorld' ILIKE 'HELLO%' => true
+      ExpressionEvaluator.evaluateExpression(row, likeExpr(Operator.ILIKE, "txt", "HELLO%")) shouldBe BoolVal(true)
+    }
+
+    it("should handle NOT_ILIKE the same but negated") {
+      val row = buildStringColumn("txt", "HelloWorld")
+
+      // 'HelloWorld' NOT ILIKE '%world' => false
+      ExpressionEvaluator.evaluateExpression(row, likeExpr(Operator.NOT_ILIKE, "txt", "%world")) shouldBe BoolVal(false)
+
+      // 'HelloWorld' NOT ILIKE 'xxx%' => true => does not match
+      ExpressionEvaluator.evaluateExpression(row, likeExpr(Operator.NOT_ILIKE, "txt", "xxx%")) shouldBe BoolVal(true)
     }
 
     it("should handle AND and OR operators") {
@@ -345,27 +377,63 @@ class ExpressionEvaluatorSpec extends AnyFunSpec with Matchers {
         boolOp(Operator.OR, ColumnRef("b2"), ColumnRef("b2"))) shouldBe BoolVal(false)
     }
 
-    it("should treat non-boolean or null operands in AND/OR as false (per the code)") {
+    it("should apply Postgres 3-valued logic for AND/OR with null booleans") {
+      // bTrue = true
+      // bFalse = false
+      // bNull = null
       val row = buildRow(
         buildColumn("bTrue", buildBoolValue(true)),
-        buildColumn("iVal", buildIntValue(99)),
-        buildColumn("nullVal", buildNullValue()))
+        buildColumn("bFalse", buildBoolValue(false)),
+        buildColumn("bNull", buildNullValue()))
 
-      // AND -> false if at least one operand is not BoolVal
-      ExpressionEvaluator.evaluateExpression(
-        row,
-        BinaryOp(Operator.AND, ColumnRef("bTrue"), ColumnRef("iVal"))) shouldBe BoolVal(false)
-      ExpressionEvaluator.evaluateExpression(
-        row,
-        BinaryOp(Operator.AND, ColumnRef("bTrue"), ColumnRef("nullVal"))) shouldBe BoolVal(false)
+      // Helper to build AND/OR expressions easily
+      def and(l: String, r: String): Expression =
+        BinaryOp(Operator.AND, ColumnRef(l), ColumnRef(r))
+      def or(l: String, r: String): Expression =
+        BinaryOp(Operator.OR, ColumnRef(l), ColumnRef(r))
 
-      // OR -> false if at least one operand is not BoolVal (and the other is not true)
-      ExpressionEvaluator.evaluateExpression(
-        row,
-        BinaryOp(Operator.OR, ColumnRef("iVal"), ColumnRef("iVal"))) shouldBe BoolVal(false)
-      ExpressionEvaluator.evaluateExpression(
-        row,
-        BinaryOp(Operator.OR, ColumnRef("nullVal"), ColumnRef("nullVal"))) shouldBe BoolVal(false)
+      // 1) AND
+      // true AND null => null
+      ExpressionEvaluator.evaluateExpression(row, and("bTrue", "bNull")) shouldBe NullVal
+      // false AND null => false
+      ExpressionEvaluator.evaluateExpression(row, and("bFalse", "bNull")) shouldBe BoolVal(false)
+      // null AND null => null
+      ExpressionEvaluator.evaluateExpression(row, and("bNull", "bNull")) shouldBe NullVal
+      // true AND false => false
+      ExpressionEvaluator.evaluateExpression(row, and("bTrue", "bFalse")) shouldBe BoolVal(false)
+      // false AND true => false
+      ExpressionEvaluator.evaluateExpression(row, and("bFalse", "bTrue")) shouldBe BoolVal(false)
+      // true AND true => true
+      ExpressionEvaluator.evaluateExpression(row, and("bTrue", "bTrue")) shouldBe BoolVal(true)
+
+      // 2) OR
+      // true OR null => true
+      ExpressionEvaluator.evaluateExpression(row, or("bTrue", "bNull")) shouldBe BoolVal(true)
+      // false OR null => null
+      ExpressionEvaluator.evaluateExpression(row, or("bFalse", "bNull")) shouldBe NullVal
+      // null OR null => null
+      ExpressionEvaluator.evaluateExpression(row, or("bNull", "bNull")) shouldBe NullVal
+      // true OR false => true
+      ExpressionEvaluator.evaluateExpression(row, or("bTrue", "bFalse")) shouldBe BoolVal(true)
+      // false OR true => true
+      ExpressionEvaluator.evaluateExpression(row, or("bFalse", "bTrue")) shouldBe BoolVal(true)
+      // false OR false => false
+      ExpressionEvaluator.evaluateExpression(row, or("bFalse", "bFalse")) shouldBe BoolVal(false)
+    }
+
+    it("should raise an error (or produce null) if AND/OR operands are not boolean") {
+      // e.g., iVal = 99 is not BoolVal
+      val row = buildRow(buildColumn("bTrue", buildBoolValue(true)), buildColumn("iVal", buildIntValue(99)))
+
+      // If your evaluator *throws* for non-bool, test that:
+      intercept[UnsupportedExpressionError] {
+        ExpressionEvaluator.evaluateExpression(row, BinaryOp(Operator.AND, ColumnRef("bTrue"), ColumnRef("iVal")))
+      }.getMessage should include("Unsupported types for AND")
+
+      // OR, if your evaluator returns NullVal for non-boolean, you can test that instead:
+      // ExpressionEvaluator.evaluateExpression(
+      //   row, BinaryOp(Operator.AND, ColumnRef("bTrue"), ColumnRef("iVal"))
+      // ) shouldBe NullVal
     }
 
     it("should compare RecordVal and ListVal properly") {

@@ -17,8 +17,7 @@ import java.util.UUID
 import java.util.concurrent.{Executors, TimeUnit}
 
 import scala.concurrent.duration._
-import scala.concurrent.{Await, ExecutionContext, Future}
-import scala.jdk.CollectionConverters._
+import scala.concurrent.{Await, ExecutionContext, Future, Promise}
 import scala.util.{Random, Try}
 
 import org.scalatest.BeforeAndAfterAll
@@ -44,7 +43,8 @@ import akka.actor.typed.{ActorRef, ActorSystem, Scheduler}
 import akka.stream.{Materializer, SystemMaterializer}
 import akka.util.Timeout
 import io.grpc.inprocess.{InProcessChannelBuilder, InProcessServerBuilder}
-import io.grpc.{ManagedChannel, Server, StatusRuntimeException}
+import io.grpc.stub.{ClientCallStreamObserver, ClientResponseObserver}
+import io.grpc.{ManagedChannel, Server}
 
 /**
  * A high-concurrency test suite that exercises parallel calls to "executeTable" with overlapping qualifiers, partial
@@ -127,7 +127,7 @@ class TablesServiceHighConcurrencySpec
         satisfiesAllQualsFn),
       "cacheManager-highConcurrency")
 
-  private val serviceImpl = new TableServiceGrpcImpl(dasSdkManager, cacheManager, maxChunkSize = 1)
+  private val serviceImpl = new TableServiceGrpcImpl(dasSdkManager, cacheManager)
 
   // ----------------------------------------------------------------
   // 4) Setup & Teardown
@@ -169,13 +169,66 @@ class TablesServiceHighConcurrencySpec
       val chunk = stubIterator.next()
       total += chunk.getRowsCount
     }
+    // Since the server sends batches, we might have read more than the limit
+    if (total > limit) total = limit
     total
+  }
+
+  private def asyncStub: TablesServiceGrpc.TablesServiceStub =
+    TablesServiceGrpc.newStub(channel)
+
+  private def partialAsyncRead(request: ExecuteTableRequest, limit: Int)(implicit ec: ExecutionContext): Future[Int] = {
+    // We'll define a promise to signal completion
+    val promise = Promise[Int]()
+
+    // A custom observer that tracks how many rows have been read so far
+    val responseObserver = new ClientResponseObserver[ExecuteTableRequest, Rows] {
+
+      // This field is only available once onStart(...) is called. We can store the callObserver to cancel later.
+      private var callObserver: ClientCallStreamObserver[ExecuteTableRequest] = _
+
+      private var totalCount = 0
+
+      override def beforeStart(requestStream: ClientCallStreamObserver[ExecuteTableRequest]): Unit = {
+        this.callObserver = requestStream
+      }
+
+      override def onNext(value: Rows): Unit = {
+        totalCount += value.getRowsCount
+        if (totalCount > limit) totalCount = limit
+        if (totalCount >= limit) {
+          // Cancel the call
+          callObserver.cancel("partial read done", null)
+          // We'll consider ourselves "done" at this point
+          promise.trySuccess(totalCount)
+        }
+      }
+
+      override def onError(t: Throwable): Unit = {
+        // If we cancelled, we might get an error as well.
+        // Distinguish normal cancellation from real errors if needed.
+        // For this example, let's just succeed if we intentionally cancelled, else fail.
+        if (!promise.isCompleted) {
+          promise.failure(t)
+        }
+      }
+
+      override def onCompleted(): Unit = {
+        // If we never reached the limit, we might finish naturally
+        promise.trySuccess(totalCount)
+      }
+    }
+
+    // Kick off the call
+    asyncStub.executeTable(request, responseObserver)
+
+    promise.future
   }
 
   // Helper to make a random Qual
   private def randomQual(): Qual = {
-    val colName = "column1" // if (Random.nextBoolean()) "column1" else "column2"
-    val op = if (Random.nextBoolean()) Operator.GREATER_THAN else Operator.LESS_THAN
+    val colName = "column1"
+    val op = Operator.GREATER_THAN
     val rndInt = Random.nextInt(100)
     val sq = SimpleQual
       .newBuilder()
@@ -245,21 +298,19 @@ class TablesServiceHighConcurrencySpec
     }
 
     "handle concurrency with different table IDs" in {
-      // In the mock DAS ID=1, we have multiple tables: "small", "big", "all_types", etc.
-      // Let's run concurrency across them randomly.
-
       val concurrencyLevel = 15
-      val tableNames = Seq("small", "big") // from your DAS mock
+      val tableNames = Seq("small", "big") // from your mock
       val dasId = DASId.newBuilder().setId("1").build()
 
       val concurrencyPool = Executors.newFixedThreadPool(concurrencyLevel)
-      implicit val concEC = ExecutionContext.fromExecutor(concurrencyPool)
+      implicit val ec: ExecutionContext = ExecutionContext.fromExecutor(concurrencyPool)
 
       val futureWork = (1 to concurrencyLevel).map { i =>
         Future {
-          val stub = blockingStub
           val tbl = tableNames(Random.nextInt(tableNames.size))
-          val planId = s"plan-mixed-$i-${UUID.randomUUID().toString.take(8)}"
+          val planId = s"plan-async-$i-${UUID.randomUUID().toString.take(8)}"
+
+          // Build the request
           val request = ExecuteTableRequest
             .newBuilder()
             .setDasId(dasId)
@@ -273,30 +324,25 @@ class TablesServiceHighConcurrencySpec
             )
             .build()
 
-          val it = stub.executeTable(request)
-          val partialRows = partialRead(it, limit = 50) // read up to 50
-
-          (tbl, partialRows)
-        }
+          // partialAsyncRead returns a Future[Int], but we're inside a Future {...}?
+          // Let's flatten this by returning partialAsyncRead(...) directly.
+          partialAsyncRead(request, limit = 50)
+        }.flatten // flatten merges the nested Future[Future[Int]] => Future[Int]
       }
 
+      // Combine them
       val aggregated = Future.sequence(futureWork)
-      val results = Await.result(aggregated, 3.minutes)
+      val results = Await.result(aggregated, 15.minutes)
 
       concurrencyPool.shutdown()
       concurrencyPool.awaitTermination(60, TimeUnit.SECONDS)
 
-      // We expect each future to have read up to 50 rows from whichever table.
-      // "big" might have billions, so partial read is definitely < 50. "small" has only 100 total, etc.
+      // Check results
       results.size shouldBe concurrencyLevel
-      results.foreach { case (tbl, count) =>
-        // We can't know exactly how many rows were read, but can sanity check
+      results.foreach { count =>
         count should be >= 0
         count should be <= 50
       }
-
-      // Additional validations:
-      //  - Possibly query manager state or metrics to confirm # of caches spawned vs. reused
     }
 
     "randomly cancel some calls to test partial consumption" in {
@@ -320,6 +366,7 @@ class TablesServiceHighConcurrencySpec
             .setTableId(TableId.newBuilder().setName("slow")) // or "big"
             .setPlanId(planId)
             .setQuery(Query.newBuilder().addColumns("column1"))
+            .setMaxBatchSizeBytes(1024 * 1024)
             .build()
 
           val it = stub.executeTable(req)

@@ -78,10 +78,7 @@ public interface DASTable {
    * @param sortKeys sort keys to apply
    * @return a list of explanation lines
    */
-  default List<String> explain(
-      List<Qual> quals,
-      List<String> columns,
-      List<SortKey> sortKeys) {
+  default List<String> explain(List<Qual> quals, List<String> columns, List<SortKey> sortKeys) {
     return Collections.emptyList();
   }
 
@@ -93,10 +90,7 @@ public interface DASTable {
    * @param sortKeys sort keys to apply
    * @return a closeable iterator of rows
    */
-  DASExecuteResult execute(
-      List<Qual> quals,
-      List<String> columns,
-      List<SortKey> sortKeys);
+  DASExecuteResult execute(List<Qual> quals, List<String> columns, List<SortKey> sortKeys);
 
   /**
    * Unique column of the table, if any. This is used to identify rows in the table in case of
