@@ -27,7 +27,11 @@ class DASMockAllTypesTable(maxRows: Int) extends DASTable {
     DASTable.TableEstimate(maxRows, 200)
   }
 
-  override def execute(quals: Seq[Qual], columns: Seq[String], sortKeys: Seq[SortKey], maybeLimit: Option[Long]): DASExecuteResult = {
+  override def execute(
+      quals: Seq[Qual],
+      columns: Seq[String],
+      sortKeys: Seq[SortKey],
+      maybeLimit: Option[Long]): DASExecuteResult = {
     new DASExecuteResult {
 
       private val iterator = Range(1, maxRows + 1).iterator

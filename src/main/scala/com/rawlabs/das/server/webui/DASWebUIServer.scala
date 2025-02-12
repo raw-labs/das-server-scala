@@ -12,13 +12,13 @@
 
 package com.rawlabs.das.server.webui
 
+import scala.concurrent.ExecutionContext
+import scala.util.{Failure, Success}
+
 import akka.actor.typed.ActorSystem
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.server.Directives._
 import akka.stream.Materializer
-
-import scala.concurrent.ExecutionContext
-import scala.util.{Failure, Success}
 
 object DASWebUIServer {
 

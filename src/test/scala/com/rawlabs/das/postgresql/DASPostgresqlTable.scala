@@ -56,7 +56,11 @@ class DASPostgresqlTable(backend: PostgresqlBackend, schema: String, defn: Table
    * @param sortKeys sort keys to apply
    * @return a closeable iterator of rows
    */
-  override def execute(quals: Seq[Qual], columns: Seq[String], sortKeys: Seq[SortKey], maybeLimit: Option[Long]): DASExecuteResult = {
+  override def execute(
+      quals: Seq[Qual],
+      columns: Seq[String],
+      sortKeys: Seq[SortKey],
+      maybeLimit: Option[Long]): DASExecuteResult = {
 
     // Build SELECT list
     val selectClause =
@@ -73,8 +77,11 @@ class DASPostgresqlTable(backend: PostgresqlBackend, schema: String, defn: Table
       if (sortKeys.isEmpty) ""
       else "\nORDER BY " + sortKeys.map(sortKeyToSql).mkString(", ")
 
+    // Build LIMIT
+    val limitClause = maybeLimit.map(l => s"\nLIMIT $l").getOrElse("")
+
     val sql =
-      s"SELECT $selectClause FROM ${quoteIdentifier(schema)}.${quoteIdentifier(defn.getTableId.getName)}$whereClause$orderByClause"
+      s"SELECT $selectClause FROM ${quoteIdentifier(schema)}.${quoteIdentifier(defn.getTableId.getName)}" + whereClause + orderByClause + limitClause
 
     println(s"Executing SQL: $sql")
 
