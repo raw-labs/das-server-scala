@@ -68,7 +68,7 @@ trait DASTable {
    * @param sortKeys sort keys to apply
    * @return a closeable iterator of rows
    */
-  def execute(quals: Seq[Qual], columns: Seq[String], sortKeys: Seq[SortKey]): DASExecuteResult
+  def execute(quals: Seq[Qual], columns: Seq[String], sortKeys: Seq[SortKey], maybeLimit: Option[Long]): DASExecuteResult
 
   /**
    * Unique column of the table, if any. This is used to identify rows in the table in case of update or delete
