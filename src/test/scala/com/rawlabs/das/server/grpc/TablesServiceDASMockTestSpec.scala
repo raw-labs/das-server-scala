@@ -14,25 +14,18 @@ package com.rawlabs.das.server.grpc
 
 import java.io.File
 import java.nio.file.Files
-import java.util.UUID
 
 import scala.concurrent._
 import scala.concurrent.duration._
 import scala.jdk.CollectionConverters._
-import scala.util.{Failure, Success, Try}
+import scala.util.Try
 
 import org.scalatest.BeforeAndAfterAll
 import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
-import com.google.protobuf.UnknownFieldSet.Field
 import com.rawlabs.das.sdk.DASSettings
-import com.rawlabs.das.server.cache.catalog._
-import com.rawlabs.das.server.cache.iterator._
-import com.rawlabs.das.server.cache.manager.CacheManager
-import com.rawlabs.das.server.cache.manager.CacheManager.{InjectCacheEntry, ListCaches}
-import com.rawlabs.das.server.cache.queue._
 import com.rawlabs.das.server.manager.DASSdkManager
 import com.rawlabs.protocol.das.v1.common.DASId
 import com.rawlabs.protocol.das.v1.query._
@@ -40,9 +33,8 @@ import com.rawlabs.protocol.das.v1.services._
 import com.rawlabs.protocol.das.v1.tables._
 import com.rawlabs.protocol.das.v1.types.{Value, ValueInt, ValueString}
 
-import akka.actor.testkit.typed.scaladsl.TestProbe
-import akka.actor.typed.scaladsl.{AskPattern, Behaviors}
-import akka.actor.typed.{ActorRef, ActorSystem, Scheduler}
+import akka.actor.typed.scaladsl.Behaviors
+import akka.actor.typed.{ActorSystem, Scheduler}
 import akka.stream.Materializer
 import akka.util.Timeout
 import io.grpc.inprocess.{InProcessChannelBuilder, InProcessServerBuilder}
@@ -100,53 +92,8 @@ class TablesServiceDASMockTestSpec extends AnyWordSpec with Matchers with Before
   implicit private val settings: DASSettings = new DASSettings
   private val dasSdkManager: DASSdkManager = new DASSdkManager
 
-  // 4) Catalog
-  private val dbUrl = s"jdbc:sqlite:file:${Files.createTempFile("testdb", ".sqlite")}"
-  private val catalog: CacheCatalog = new SqliteCacheCatalog(dbUrl)
-
-  // 5) Chronicle base dir
-  private val baseDir = createTempDir("cacheTestDirComprehensive")
-  baseDir.mkdirs()
-
-  // 6) The real chooseBestEntry
-  private val chooseBestEntry: (CacheDefinition, List[CacheEntry]) => Option[(CacheEntry, Seq[Qual])] = {
-    case (definition, possible) =>
-      // Exactly the required function:
-      CacheSelector.pickBestCache(possible, definition.quals, definition.columns)
-  }
-
-  // 7) The real satisfiesAllQualsFn
-  private val satisfiesAllQualsFn: (Row, Seq[Qual]) => Boolean = (row, quals) =>
-    QualEvaluator.satisfiesAllQuals(row, quals)
-
-  // 8) settings
-  private val maxEntries = 2
-  private val batchSize = 1000
-  private val gracePeriod = 5.minutes
-  private val producerInterval = 5.millis
-
-  // 9) Manager
-  private val cacheManager: ActorRef[CacheManager.Command[Row]] =
-    system.systemActorOf(
-      CacheManager[Row](
-        catalog,
-        baseDir,
-        maxEntries,
-        batchSize,
-        gracePeriod,
-        producerInterval,
-        chooseBestEntry,
-        satisfiesAllQualsFn),
-      "cacheManager-comprehensive")
-
   // 10) TableService
   private val tableServiceImpl = new TableServiceGrpcImpl(dasSdkManager)
-
-  private def createTempDir(prefix: String): File = {
-    val dir = Files.createTempDirectory(prefix).toFile
-    dir.mkdirs()
-    dir
-  }
 
   override def beforeAll(): Unit = {
     super.beforeAll()
@@ -169,7 +116,6 @@ class TablesServiceDASMockTestSpec extends AnyWordSpec with Matchers with Before
       if (channel != null) channel.shutdownNow()
       if (server != null) server.shutdownNow()
       system.terminate()
-      baseDir.deleteOnExit()
     }
     super.afterAll()
   }
@@ -373,114 +319,6 @@ class TablesServiceDASMockTestSpec extends AnyWordSpec with Matchers with Before
         collectRows(iter) // read => triggers error
       }
       ex.getStatus.getCode shouldBe io.grpc.Status.Code.INTERNAL
-
-      // manager => mark it as error
-      val probe = TestProbe[List[CacheEntry]]()
-      cacheManager ! ListCaches("1", probe.ref)
-      val caches = probe.receiveMessage()
-      caches.exists(_.state == CacheState.Error) shouldBe true
-    }
-
-    // 9) Reuse "slow" as an in-progress => call again quickly => we attach to the same cache
-    "reuse in-progress cache if same table is called again (slow table test)" in {
-      // We'll do partial read from 'slow', leaving it in progress
-      val req = ExecuteTableRequest
-        .newBuilder()
-        .setDasId(DASId.newBuilder().setId("1"))
-        .setTableId(TableId.newBuilder().setName("slow"))
-        .setPlanId("plan-slow-reuse-1")
-        .setQuery(Query.newBuilder().addColumns("column1"))
-        .setMaxBatchSizeBytes(1024 * 1024)
-        .build()
-
-      // read 3 rows => then stop
-      val iter1 = blockingStub.executeTable(req)
-      var accum = Seq.empty[Row]
-      while (accum.size < 3 && iter1.hasNext) {
-        val chunk = iter1.next()
-        accum ++= chunk.getRowsList.asScala
-      }
-      accum.size should be >= 3
-
-      // Then call again => manager sees same 'slow' => we attach from start
-      val req2 = req.toBuilder.setPlanId("plan-slow-reuse-2").build()
-      val rows2 = collectRows(blockingStub.executeTable(req2))
-      // We'll read all 10, because it replays from the start
-      rows2.size shouldBe 10
-    }
-
-    // 10) "small" => apply narrower qualifiers on a completed cache (partial coverage => final filter)
-    "apply narrower qualifiers on a completed cache (partial coverage => final filter)" in {
-      //
-      // STEP 1: Query the 'small' table with qual: column1 > 10 => read all => cache should complete.
-      //
-      val req1 = ExecuteTableRequest
-        .newBuilder()
-        .setDasId(DASId.newBuilder().setId("1"))
-        .setTableId(TableId.newBuilder().setName("small"))
-        .setPlanId("plan-small-qual1")
-        .setQuery(
-          Query
-            .newBuilder()
-            .addQuals(intQualProto("column1", Operator.GREATER_THAN, 10)) // column1 > 10
-            .addColumns("column1") // we only need column1 in this test
-        )
-        .setMaxBatchSizeBytes(1024 * 1024)
-        .build()
-
-      // Read all matching rows => should get rows 11..100 => 90 total.
-      val rows1 = collectRows(blockingStub.executeTable(req1))
-      rows1.size shouldBe 90
-
-      // Optionally, you can probe the manager to confirm the cache is COMPLETE:
-      val probe = TestProbe[List[CacheEntry]]()
-      cacheManager ! ListCaches("1", probe.ref)
-      val cachesAfterFirst = probe.receiveMessage()
-      val maybeSmallCache = cachesAfterFirst.find(_.definition.tableId == "small")
-      maybeSmallCache.map(_.state) should contain(CacheState.Complete)
-
-      //
-      // STEP 2: Query again with a narrower qualifier: column1 > 50 => manager should reuse the
-      // archived cache and apply an additional filter => rows 51..100 => 50 rows.
-      //
-      val req2 = ExecuteTableRequest
-        .newBuilder()
-        .setDasId(DASId.newBuilder().setId("1"))
-        .setTableId(TableId.newBuilder().setName("small"))
-        .setPlanId("plan-small-qual2")
-        .setQuery(
-          Query
-            .newBuilder()
-            .addQuals(intQualProto("column1", Operator.GREATER_THAN, 50)) // column1 > 50
-            .addColumns("column1"))
-        .setMaxBatchSizeBytes(1024 * 1024)
-        .build()
-
-      val rows2 = collectRows(blockingStub.executeTable(req2))
-      rows2.size shouldBe 50
-
-      // STEP 3: Query again with an extra predicate. It should reuse the cache.
-      //
-      val req3 = ExecuteTableRequest
-        .newBuilder()
-        .setDasId(DASId.newBuilder().setId("1"))
-        .setTableId(TableId.newBuilder().setName("small"))
-        .setPlanId("plan-small-qual3")
-        .setQuery(
-          Query
-            .newBuilder()
-            .addQuals(intQualProto("column1", Operator.GREATER_THAN, 10)) // column1 > 10
-            .addQuals(stringQualProto("column2", Operator.EQUALS, "row_tmp_5"))
-            .addColumns("column1"))
-        .setMaxBatchSizeBytes(1024 * 1024)
-        .build()
-
-      val rows3 = collectRows(blockingStub.executeTable(req3))
-      // There is a row with "column2" == "row_tmp_5" but it's not in the range of column1 > 10
-      rows3.size shouldBe 0
-
-      // This confirms the narrower qualifier is applied on top of the already-complete cache,
-      // and we receive just the rows that match the new qualifier.
     }
 
   }

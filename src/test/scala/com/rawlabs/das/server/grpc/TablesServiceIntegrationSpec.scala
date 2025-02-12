@@ -25,10 +25,6 @@ import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
 import com.rawlabs.das.sdk.DASSettings
-import com.rawlabs.das.server.cache.catalog._
-import com.rawlabs.das.server.cache.iterator.{CacheSelector, QualEvaluator}
-import com.rawlabs.das.server.cache.manager.CacheManager.Command
-import com.rawlabs.das.server.cache.manager._
 import com.rawlabs.das.server.manager.DASSdkManager
 import com.rawlabs.protocol.das.v1.common.DASId
 import com.rawlabs.protocol.das.v1.query.{Qual, Query}
@@ -58,39 +54,6 @@ class TablesServiceIntegrationSpec extends AnyWordSpec with Matchers with Before
 
   // 1) Real DASSdkManager
   private val dasSdkManager: DASSdkManager = new DASSdkManager
-
-  // 2) Real CacheManager backed by an in-memory catalog
-  private val dbUrl = s"jdbc:sqlite:file:${Files.createTempFile("testdb", ".sqlite")}"
-  private val catalog: CacheCatalog = new SqliteCacheCatalog(dbUrl)
-  private val baseDir: File = createTempDir("cacheTestDirIntegration")
-  baseDir.mkdirs()
-  private val maxEntries: Int = 2
-  private val batchSize = 1000
-  private val gracePeriod = 5.minutes
-  private val producerInterval = 5.millis
-
-  // Real chooseBestEntry
-  private val chooseBestEntry: (CacheDefinition, Seq[CacheEntry]) => Option[(CacheEntry, Seq[Qual])] = {
-    case (definition, possible) =>
-      CacheSelector.pickBestCache(possible, definition.quals, definition.columns)
-  }
-
-  // Real satisfiesAllQuals
-  private val satisfiesAllQuals: (Row, Seq[Qual]) => Boolean = (row, quals) =>
-    QualEvaluator.satisfiesAllQuals(row, quals)
-
-  private val cacheManager: akka.actor.typed.ActorRef[Command[Row]] =
-    system.systemActorOf(
-      CacheManager[Row](
-        catalog,
-        baseDir,
-        maxEntries,
-        batchSize,
-        gracePeriod,
-        producerInterval,
-        chooseBestEntry,
-        satisfiesAllQuals),
-      "cacheManager-for-tests")
 
   // 3) Derive or import the required Akka Streams implicits
   implicit val ec: ExecutionContext = system.executionContext
@@ -124,7 +87,6 @@ class TablesServiceIntegrationSpec extends AnyWordSpec with Matchers with Before
       if (channel != null) channel.shutdownNow()
       if (server != null) server.shutdownNow()
       system.terminate()
-      baseDir.deleteOnExit()
     }
     super.afterAll()
   }
