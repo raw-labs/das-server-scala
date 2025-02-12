@@ -80,7 +80,7 @@ class DASServer(cacheManager: ActorRef[CacheManager.Command[Row]])(
 object DASServer {
 
   def main(args: Array[String]): Unit = {
-    implicit val settings = new DASSettings()
+    implicit val settings: DASSettings = new DASSettings()
 
     // 1) Create a typed ActorSystem
     implicit val system: ActorSystem[Nothing] = ActorSystem[Nothing](Behaviors.empty, "das-server")
