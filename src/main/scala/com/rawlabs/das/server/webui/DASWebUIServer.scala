@@ -12,14 +12,13 @@
 
 package com.rawlabs.das.server.webui
 
-import scala.concurrent.{ExecutionContext, Future}
-import scala.util.{Failure, Success}
-
 import akka.actor.typed.ActorSystem
 import akka.http.scaladsl.Http
-import akka.http.scaladsl.model._
 import akka.http.scaladsl.server.Directives._
 import akka.stream.Materializer
+
+import scala.concurrent.ExecutionContext
+import scala.util.{Failure, Success}
 
 object DASWebUIServer {
 
@@ -29,36 +28,12 @@ object DASWebUIServer {
       ec: ExecutionContext): Unit = {
 
     val route =
-      concat(
-        pathSingleSlash {
-          get {
-            // Synchronous: debugService.renderOverviewPage() => HttpEntity
-            complete(debugService.renderOverviewPage())
-          }
-        },
-        path("cache") {
-          get {
-            // Asynchronous => we get a Future[HttpEntity], so we use onSuccess or complete with `future`.
-            onSuccess(debugService.renderCacheCatalogPage()) { entity =>
-              complete(entity)
-            }
-          }
-        },
-        path("cache" / "clear") {
-          get {
-            // Another Future-based method => onSuccess
-            onSuccess(debugService.clearAllCache()) { entity =>
-              complete(entity)
-            }
-          }
-        },
-        path("actors") {
-          get {
-            onSuccess(debugService.renderActorsPage()) { entity =>
-              complete(entity)
-            }
-          }
-        })
+      concat(pathSingleSlash {
+        get {
+          // Synchronous: debugService.renderOverviewPage() => HttpEntity
+          complete(debugService.renderOverviewPage())
+        }
+      })
 
     val bindingF = Http().newServerAt(host, port).bind(route)
 

@@ -18,9 +18,6 @@ import scala.concurrent.ExecutionContext
 import scala.jdk.DurationConverters.JavaDurationOps
 
 import com.rawlabs.das.sdk.DASSettings
-import com.rawlabs.das.server.cache.catalog.{CacheCatalog, CacheDefinition, CacheEntry, SqliteCacheCatalog}
-import com.rawlabs.das.server.cache.iterator.{CacheSelector, QualEvaluator}
-import com.rawlabs.das.server.cache.manager.CacheManager
 import com.rawlabs.das.server.grpc.{
   HealthCheckServiceGrpcImpl,
   RegistrationServiceGrpcImpl,
@@ -38,7 +35,7 @@ import akka.actor.typed.{ActorRef, ActorSystem, Scheduler}
 import akka.stream.Materializer
 import io.grpc.{Server, ServerBuilder}
 
-class DASServer(cacheManager: ActorRef[CacheManager.Command[Row]])(
+class DASServer()(
     implicit settings: DASSettings,
     implicit val ec: ExecutionContext,
     implicit val materializer: Materializer,
@@ -85,54 +82,19 @@ object DASServer {
     // 1) Create a typed ActorSystem
     implicit val system: ActorSystem[Nothing] = ActorSystem[Nothing](Behaviors.empty, "das-server")
 
-    // 2) Create manager
-    val catalog: CacheCatalog = {
-      val sqliteFile = settings.getString("das.cache.sqlite-catalog-file")
-      new SqliteCacheCatalog(f"jdbc:sqlite:$sqliteFile")
-    }
-    val baseDir: File = {
-      val cacheData = settings.getString("das.cache.data-dir")
-      new File(cacheData)
-    }
-    val maxEntries = settings.getInt("das.cache.max-entries")
-    val batchSize = settings.getInt("das.cache.batch-size")
-    val gracePeriod = settings.getDuration("das.cache.grace-period").toScala
-    val producerInterval = settings.getDuration("das.cache.producer-interval").toScala
     val port = settings.getInt("das.server.port")
     val monitoringPort = settings.getInt("das.server.monitoring-port")
 
-    val chooseBestEntry: (CacheDefinition, Seq[CacheEntry]) => Option[(CacheEntry, Seq[Qual])] = {
-      case (definition, possible) => CacheSelector.pickBestCache(possible, definition.quals, definition.columns)
-    }
-    val satisfiesAllQuals: (Row, Seq[Qual]) => Boolean = { case (row, quals) =>
-      QualEvaluator.satisfiesAllQuals(row, quals)
-    }
-
-    val cacheManager =
-      system.systemActorOf(
-        CacheManager[Row](
-          catalog,
-          baseDir,
-          maxEntries,
-          batchSize,
-          gracePeriod,
-          producerInterval,
-          chooseBestEntry,
-          satisfiesAllQuals),
-        "cacheManager")
-
-    // 3) Derive or import the required implicits
-    //    - Typically from the typed ActorSystem
     implicit val ec: ExecutionContext = system.executionContext
     implicit val mat: Materializer = Materializer(system)
     implicit val scheduler: Scheduler = system.scheduler
 
     // 4) Start the grpc server
-    val dasServer = new DASServer(cacheManager)
+    val dasServer = new DASServer()
     dasServer.start(port)
 
     // 5) Start the new server-side HTML UI
-    val debugService = new DebugAppService(cacheManager)
+    val debugService = new DebugAppService()
     DASWebUIServer.startHttpInterface("0.0.0.0", monitoringPort, debugService)
 
     dasServer.blockUntilShutdown()

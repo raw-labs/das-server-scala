@@ -84,7 +84,7 @@ lazy val root = (project in file("."))
       // Configuration
       "com.typesafe" % "config" % "1.4.3",
       // Protocol DAS
-      "com.raw-labs" %% "protocol-das" % "1.0.0-beta2",
+      "com.raw-labs" %% "protocol-das" % "protocol-v1-ben-beta-protocol-v1-delete-cache-SNAPSHOT",
       // Akka Streams
       "com.typesafe.akka" %% "akka-actor-typed" % "2.8.8",
       "com.typesafe.akka" %% "akka-actor" % "2.8.8",

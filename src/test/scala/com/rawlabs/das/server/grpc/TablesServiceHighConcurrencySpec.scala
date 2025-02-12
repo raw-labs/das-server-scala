@@ -27,10 +27,6 @@ import org.scalatest.time.{Seconds, Span}
 import org.scalatest.wordspec.AnyWordSpec
 
 import com.rawlabs.das.sdk.DASSettings
-import com.rawlabs.das.server.cache.catalog._
-import com.rawlabs.das.server.cache.iterator.QualEvaluator
-import com.rawlabs.das.server.cache.manager.CacheManager
-import com.rawlabs.das.server.cache.manager.CacheManager.Command
 import com.rawlabs.das.server.manager.DASSdkManager
 import com.rawlabs.protocol.das.v1.common.DASId
 import com.rawlabs.protocol.das.v1.query.{Operator, Qual, Query, SimpleQual}
@@ -82,50 +78,10 @@ class TablesServiceHighConcurrencySpec
   private var channel: ManagedChannel = _
 
   // ----------------------------------------------------------------
-  // 3) DAS + CacheManager + TableService
+  // 3) DAS + TableService
   // ----------------------------------------------------------------
   implicit private val settings: DASSettings = new DASSettings
   private val dasSdkManager: DASSdkManager = new DASSdkManager
-
-  // Catalog + manager
-  private val dbUrl = s"jdbc:sqlite:file:${Files.createTempFile("testdb", ".sqlite")}"
-  private val catalog: CacheCatalog = new SqliteCacheCatalog(dbUrl)
-
-  private val baseDir = {
-    val dir = Files.createTempDirectory("cacheHighConcurrency").toFile
-    dir.mkdirs()
-    dir
-  }
-
-  // A standard coverage function
-  private val chooseBestEntry: (CacheDefinition, List[CacheEntry]) => Option[(CacheEntry, Seq[Qual])] = {
-    case (definition, possible) =>
-      // Use your real coverage logic; for illustration we just pick the first complete or in-progress one
-      com.rawlabs.das.server.cache.iterator.CacheSelector.pickBestCache(possible, definition.quals, definition.columns)
-  }
-
-  // Basic row-qual evaluation
-  private val satisfiesAllQualsFn: (Row, Seq[Qual]) => Boolean =
-    (row, quals) => QualEvaluator.satisfiesAllQuals(row, quals)
-
-  // The concurrency test might create many new caches, so pick a bigger maxEntries
-  private val maxEntries = 10
-  private val batchSize = 1000
-  private val gracePeriod = 5.seconds
-  private val producerInterval = 5.millis
-
-  private val cacheManager: ActorRef[Command[Row]] =
-    system.systemActorOf(
-      CacheManager[Row](
-        catalog,
-        baseDir,
-        maxEntries,
-        batchSize,
-        gracePeriod,
-        producerInterval,
-        chooseBestEntry,
-        satisfiesAllQualsFn),
-      "cacheManager-highConcurrency")
 
   private val serviceImpl = new TableServiceGrpcImpl(dasSdkManager)
 
@@ -154,7 +110,6 @@ class TablesServiceHighConcurrencySpec
       if (channel != null) channel.shutdownNow()
       if (server != null) server.shutdownNow()
       system.terminate()
-      baseDir.deleteOnExit()
     }
     super.afterAll()
   }
