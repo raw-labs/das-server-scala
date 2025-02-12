@@ -140,7 +140,7 @@ class TablesServiceEvictOldCacheSpec extends AnyWordSpec with Matchers with Befo
       "cacheManager-comprehensive")
 
   // 10) TableService
-  private val tableServiceImpl = new TableServiceGrpcImpl(dasSdkManager, cacheManager)
+  private val tableServiceImpl = new TableServiceGrpcImpl(dasSdkManager)
 
   private def createTempDir(prefix: String): File = {
     val dir = Files.createTempDirectory(prefix).toFile

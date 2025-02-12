@@ -130,7 +130,7 @@ class ChaosMonkeyTestSpec extends AnyWordSpec with Matchers with BeforeAndAfterA
     val initialManager = spawnManager("mgr-main")
 
     // Build the table service with that manager
-    val serviceImpl = new TableServiceGrpcImpl(dasSdkManager, initialManager)
+    val serviceImpl = new TableServiceGrpcImpl(dasSdkManager)
 
     server = InProcessServerBuilder
       .forName(serverName)

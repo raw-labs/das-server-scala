@@ -102,7 +102,7 @@ class TablesServiceIntegrationSpec extends AnyWordSpec with Matchers with Before
     super.beforeAll()
 
     // 4) Build the service implementation
-    val serviceImpl = new TableServiceGrpcImpl(dasSdkManager, cacheManager)
+    val serviceImpl = new TableServiceGrpcImpl(dasSdkManager)
 
     // 5) Start an in-process gRPC server
     server = InProcessServerBuilder

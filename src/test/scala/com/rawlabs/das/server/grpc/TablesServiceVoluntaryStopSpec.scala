@@ -116,7 +116,7 @@ class TablesServiceVoluntaryStopSpec extends AnyWordSpec with Matchers with Befo
       "cacheManager-voluntary-stop")
 
   // 10) TableService
-  private val tableServiceImpl = new TableServiceGrpcImpl(dasSdkManager, cacheManager)
+  private val tableServiceImpl = new TableServiceGrpcImpl(dasSdkManager)
 
   override def beforeAll(): Unit = {
     super.beforeAll()

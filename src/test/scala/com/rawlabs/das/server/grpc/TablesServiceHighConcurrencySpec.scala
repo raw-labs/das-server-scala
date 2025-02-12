@@ -127,7 +127,7 @@ class TablesServiceHighConcurrencySpec
         satisfiesAllQualsFn),
       "cacheManager-highConcurrency")
 
-  private val serviceImpl = new TableServiceGrpcImpl(dasSdkManager, cacheManager)
+  private val serviceImpl = new TableServiceGrpcImpl(dasSdkManager)
 
   // ----------------------------------------------------------------
   // 4) Setup & Teardown
