@@ -12,18 +12,16 @@
 
 package com.rawlabs.das.server.webui
 
+import scala.concurrent.ExecutionContext
+
 import akka.http.scaladsl.model._
 import scalatags.Text.all._
 import scalatags.Text.tags2.title
 
-import scala.concurrent.ExecutionContext
-
 /**
  * A service that uses the real CacheManager to fetch data, and returns the resulting HTML as a Future.
  */
-class DebugAppService()(implicit
-    ec: ExecutionContext,
-    scheduler: akka.actor.typed.Scheduler) {
+class DebugAppService()(implicit ec: ExecutionContext, scheduler: akka.actor.typed.Scheduler) {
 
   // --------------------------------------------------------------------------
   // 2) RENDER “OVERVIEW” PAGE (SYNCHRONOUS EXAMPLE)
@@ -42,7 +40,6 @@ class DebugAppService()(implicit
           ul(li(a(href := "/cache")("Cache Catalog")), li(a(href := "/actors")("Actors State"))))))
     htmlToEntity(htmlContent)
   }
-
 
   // --------------------------------------------------------------------------
   // UTILITY: Convert ScalaTags => HttpEntity

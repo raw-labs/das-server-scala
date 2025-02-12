@@ -13,7 +13,9 @@
 package com.rawlabs.das.sdk.scala
 
 import java.util
+
 import scala.jdk.CollectionConverters._
+
 import com.rawlabs.das.sdk.DASExecuteResult
 import com.rawlabs.das.sdk.DASTable.TableEstimate
 import com.rawlabs.protocol.das.v1.query.{PathKey, Qual, SortKey}
