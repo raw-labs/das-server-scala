@@ -13,9 +13,7 @@
 package com.rawlabs.das.sdk.scala
 
 import java.util
-
 import scala.jdk.CollectionConverters._
-
 import com.rawlabs.das.sdk.DASExecuteResult
 import com.rawlabs.das.sdk.DASTable.TableEstimate
 import com.rawlabs.protocol.das.v1.query.{PathKey, Qual, SortKey}
@@ -70,8 +68,9 @@ class DASTableScalaToJavaBridge(scalaTable: DASTable) extends com.rawlabs.das.sd
   final override def execute(
       quals: util.List[Qual],
       columns: util.List[String],
-      sortKeys: util.List[SortKey]): DASExecuteResult =
-    scalaTable.execute(quals.asScala.toSeq, columns.asScala.toSeq, sortKeys.asScala.toSeq)
+      sortKeys: util.List[SortKey],
+      maybeLimit: java.lang.Long): DASExecuteResult =
+    scalaTable.execute(quals.asScala.toSeq, columns.asScala.toSeq, sortKeys.asScala.toSeq, Option(maybeLimit))
 
   final override def uniqueColumn: String = scalaTable.uniqueColumn
 

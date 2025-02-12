@@ -194,9 +194,10 @@ class TableServiceGrpcImpl(provider: DASSdkManager, batchLatency: FiniteDuration
     val quals = request.getQuery.getQualsList.asScala.toSeq
         val columns = request.getQuery.getColumnsList.asScala.toSeq
         val sortKeys = request.getQuery.getSortKeysList.asScala.toSeq
+        val maybeLimit = request.getQuery.getLimit // optional, maybe null
 
         val dasExecuteResult: DASExecuteResult =
-          table.execute(quals.asJava, columns.asJava, sortKeys.asJava)
+          table.execute(quals.asJava, columns.asJava, sortKeys.asJava, maybeLimit)
 
         val source: Source[Row, NotUsed] = Source.unfoldResource[Row, DASExecuteResult](
           create = () => dasExecuteResult,

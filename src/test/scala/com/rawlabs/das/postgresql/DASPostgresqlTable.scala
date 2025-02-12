@@ -56,7 +56,7 @@ class DASPostgresqlTable(backend: PostgresqlBackend, schema: String, defn: Table
    * @param sortKeys sort keys to apply
    * @return a closeable iterator of rows
    */
-  override def execute(quals: Seq[Qual], columns: Seq[String], sortKeys: Seq[SortKey]): DASExecuteResult = {
+  override def execute(quals: Seq[Qual], columns: Seq[String], sortKeys: Seq[SortKey], maybeLimit: Option[Long]): DASExecuteResult = {
 
     // Build SELECT list
     val selectClause =

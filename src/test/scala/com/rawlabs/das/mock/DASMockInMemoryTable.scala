@@ -49,7 +49,7 @@ class DASMockInMemoryTable(private val dasMockStorage: DASMockStorage) extends D
    * @param maybeLimit \- Limit the number of rows returned
    * @return
    */
-  override def execute(quals: Seq[Qual], columns: Seq[String], sortKeys: Seq[SortKey]): DASExecuteResult = {
+  override def execute(quals: Seq[Qual], columns: Seq[String], sortKeys: Seq[SortKey], maybeLimit: Option[Long]): DASExecuteResult = {
     logger.info(s"Executing query with quals: $quals, columns: $columns, sortKeys: $sortKeys")
 
     new DASExecuteResult {
