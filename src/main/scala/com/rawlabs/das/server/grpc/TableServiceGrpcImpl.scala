@@ -24,14 +24,15 @@ import com.rawlabs.das.server.cache.iterator.QueryProcessorFlow
 import com.rawlabs.das.server.cache.manager.CacheManager
 import com.rawlabs.das.server.cache.manager.CacheManager.{GetIterator, WrappedGetIterator}
 import com.rawlabs.das.server.cache.queue.{CloseableIterator, DataProducingTask}
+
+import com.rawlabs.das.sdk.DASExecuteResult
 import com.rawlabs.das.server.manager.DASSdkManager
 import com.rawlabs.protocol.das.v1.services._
 import com.rawlabs.protocol.das.v1.tables._
 import com.typesafe.scalalogging.StrictLogging
 import akka.NotUsed
-import akka.actor.typed.scaladsl.AskPattern.Askable
-import akka.actor.typed.{ActorRef, Scheduler}
-import akka.stream.scaladsl.{Flow, Keep, Sink, Source}
+import akka.actor.typed.Scheduler
+import akka.stream.scaladsl.{Keep, Sink, Source}
 import akka.stream.{KillSwitches, Materializer, UniqueKillSwitch}
 import com.rawlabs.protocol.das.v1.common.DASId
 import io.grpc.stub.{ServerCallStreamObserver, StreamObserver}
@@ -41,15 +42,12 @@ import io.grpc.{Status, StatusRuntimeException}
  * Implementation of the gRPC service for handling table-related operations.
  *
  * @param provider Provides access to DAS (Data Access Service) instances.
- * @param cache Cache for storing query results.
+ * @param batchLatency Time delay for batching rows (used in groupingWeightedWithin).
  */
-class TableServiceGrpcImpl(
-    provider: DASSdkManager,
-    cacheManager: ActorRef[CacheManager.Command[Row]],
-    batchLatency: FiniteDuration = 500.millis)(
-    implicit val ec: ExecutionContext,
-    implicit val materializer: Materializer,
-    implicit val scheduler: Scheduler)
+class TableServiceGrpcImpl(provider: DASSdkManager, batchLatency: FiniteDuration = 500.millis)(implicit
+    val ec: ExecutionContext,
+    materializer: Materializer,
+    scheduler: Scheduler)
     extends TablesServiceGrpc.TablesServiceImplBase
     with StrictLogging {
 
@@ -196,104 +194,18 @@ class TableServiceGrpcImpl(
     val quals = request.getQuery.getQualsList.asScala.toSeq
         val columns = request.getQuery.getColumnsList.asScala.toSeq
         val sortKeys = request.getQuery.getSortKeysList.asScala.toSeq
-        val minCreationDate = {
-          if (request.hasMaxCacheAge) {
-            // The request embeds a maxCacheAge. Use it to set a minCreationDate.
-            val maxCacheAge = request.getMaxCacheAge
-            val nanos = maxCacheAge.getSeconds * 1_000_000_000 + maxCacheAge.getNanos
-            assert(nanos >= 0, "maxCacheAge must be non-negative")
-            Some(Instant.now().minusNanos(nanos))
-          } else {
-            // No cache age specified. Don't use caches.
-            None
-          }
-        }
 
-        // Build a data-producing task for the table, if the cache manager needs to create a new cache
-        val makeTask = () =>
-          new DataProducingTask[Row] {
-            override def run(): CloseableIterator[Row] = {
-              // table.execute(...) returns a CloseableIterator[Row], presumably
-              val dasExecuteResult: DASExecuteResult = table.execute(quals.asJava, columns.asJava, sortKeys.asJava)
+        val dasExecuteResult: DASExecuteResult =
+          table.execute(quals.asJava, columns.asJava, sortKeys.asJava)
 
-              // Adapt DASExecuteResult to CloseableIterator
-              new CloseableIterator[Row] {
-                override def hasNext: Boolean = dasExecuteResult.hasNext
+        val source: Source[Row, NotUsed] = Source.unfoldResource[Row, DASExecuteResult](
+          create = () => dasExecuteResult,
+          read = r => if (r.hasNext) Some(r.next()) else None,
+          close = r => r.close())
 
-                override def next(): Row = dasExecuteResult.next()
+        val (doneF, ks) = runStreamedResult(source, request, responseObserver, maybeServerCallObs)
+        killSwitchRef.set(Some(ks))
 
-                override def close(): Unit = dasExecuteResult.close()
-              }
-            }
-          }
-        // ^ returns a CloseableIterator[Row] presumably, or some adapter
-
-        // 2) Ask the CacheManager for a Source[Row, _]
-        import akka.util.Timeout
-        implicit val timeout: Timeout = Timeout.create(java.time.Duration.ofSeconds(3))
-
-        val futureAck = cacheManager.ask[CacheManager.GetIteratorAck[Row]] { replyTo =>
-          WrappedGetIterator(
-            GetIterator(
-              dasId = request.getDasId.getId,
-              definition = CacheDefinition(
-                tableId = request.getTableId.getName,
-                quals = quals,
-                columns = columns,
-                sortKeys = sortKeys),
-              minCreationDate = minCreationDate,
-              makeTask = makeTask,
-              codec = new RowCodec,
-              replyTo = replyTo))
-        }
-
-        futureAck.onComplete {
-          case Failure(ex) =>
-            logger.error("CacheManager lookup failed", ex)
-            responseObserver.onError(
-              new StatusRuntimeException(Status.INTERNAL.withDescription("CacheManager lookup failed")))
-
-          case Success(ack) =>
-            // The ack gives us a future Option[Source[Row, _]]
-            ack.sourceFuture.onComplete {
-              case Failure(err) =>
-                logger.error("Failed to subscribe to cached data source", err)
-                responseObserver.onError(
-                  new StatusRuntimeException(
-                    Status.INTERNAL.withDescription(s"Failed to subscribe to cached data source: $err")))
-
-              case Success(None) =>
-                // Means the data source is not available or stopped
-                logger.warn("CacheManager returned None => no data source.")
-                responseObserver.onCompleted()
-
-              case Success(Some(cachedSource)) =>
-                // 3) Build a flow that applies filtering + projection
-                //    (purely streamed row-by-row, no large in-memory collections).
-                //
-                // If you have a QueryProcessor that can produce a Flow:
-                //   val queryFlow = new QueryProcessor().asFlow(quals, columns)
-                //
-                // Or if using QueryProcessorFlow directly:
-                //   val queryFlow = QueryProcessorFlow(quals, columns)
-                //
-                // For illustration:
-                val queryFlow: Flow[Row, Row, NotUsed] =
-                  QueryProcessorFlow(quals, columns)
-
-                // 4) Merge the cached source with the flow
-                val finalSource: Source[Row, NotUsed] =
-                  cachedSource
-                    .via(queryFlow)
-                    .mapMaterializedValue(_ => NotUsed)
-
-                // 5) Chunk the final stream and push to gRPC observer
-                val (doneF, ks) = runStreamedResult(finalSource, request, responseObserver, maybeServerCallObs)
-                // 6) Set the missing kill switch
-                killSwitchRef.set(Some(ks))
-                doneF
-            }
-        }
     }
   }
 
@@ -410,13 +322,13 @@ class TableServiceGrpcImpl(
   override def getBulkInsertTableSize(
       request: GetBulkInsertTableSizeRequest,
       responseObserver: StreamObserver[GetBulkInsertTableSizeResponse]): Unit = {
-    logger.debug(s"Modifying batch size for Table ID: ${request.getTableId.getName}")
+    logger.debug(s"Fetching bulk insert size for Table ID: ${request.getTableId.getName}")
     withTable(request.getDasId, request.getTableId, responseObserver) { table =>
         val batchSize = table.bulkInsertBatchSize()
         val response = GetBulkInsertTableSizeResponse.newBuilder().setSize(batchSize).build()
         responseObserver.onNext(response)
         responseObserver.onCompleted()
-        logger.debug("Batch size modification completed successfully.")
+        logger.debug("Bulk insert size retrieved successfully.")
     }
   }
 

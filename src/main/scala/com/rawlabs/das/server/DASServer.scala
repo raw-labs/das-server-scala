@@ -56,7 +56,7 @@ class DASServer(cacheManager: ActorRef[CacheManager.Command[Row]])(
   private val tablesService = {
     val batchLatency = settings.getDuration("das.server.batch-latency").toScala
     TablesServiceGrpc
-      .bindService(new TableServiceGrpcImpl(dasSdkManager, cacheManager, batchLatency))
+      .bindService(new TableServiceGrpcImpl(dasSdkManager, batchLatency))
   }
 //  private val functionsService - FunctionsServiceGrpc.bindService(new FunctionsServiceGrpcImpl(dasSdkManager))
 
