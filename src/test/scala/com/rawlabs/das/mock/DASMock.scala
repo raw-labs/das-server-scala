@@ -356,24 +356,43 @@ class DASMock(options: Map[String, String]) extends DASSdk with StrictLogging {
                   .build())))
       .setStartupCost(1000)
       .build()
-    Seq(bigTable, smallTable, slowTable, brokenTable, inMemoryTable, allTypesTable)
+    val eventTable = TableDefinition
+      .newBuilder()
+      .setTableId(TableId.newBuilder().setName("events"))
+      .setDescription("A mock event table that is picky about dates")
+      .addColumns(
+        ColumnDefinition
+          .newBuilder()
+          .setName("event")
+          .setDescription("The event name")
+          .setType(Type.newBuilder().setString(StringType.newBuilder()).build())
+          .build())
+      .addColumns(
+        ColumnDefinition
+          .newBuilder()
+          .setName("date")
+          .setDescription("The event date")
+          .setType(Type.newBuilder().setDate(DateType.newBuilder()).build())
+          .build())
+      .setStartupCost(1000)
+      .build()
+    Seq(bigTable, smallTable, slowTable, brokenTable, inMemoryTable, allTypesTable, eventTable)
   }
 
   override def functionDefinitions: Seq[FunctionDefinition] = {
     Seq.empty
   }
 
-  override def getTable(name: String): Option[DASTable] = {
-    name match {
-      case "big"       => Some(new DASMockTable(2000000000))
-      case "small"     => Some(new DASMockTable(100))
-      case "in_memory" => Some(new DASMockInMemoryTable(dasMockStorage))
-      case "all_types" => Some(new DASMockAllTypesTable(100))
-      case "slow"      => Some(new DASMockTable(10, sleepPerRowMills = 500))
-      case "broken"    => Some(new DASMockTable(10, breakOnRow = 5))
-      case _           => None
-    }
-  }
+  private val tables = Map(
+    "big" -> new DASMockTable(2000000000),
+    "small" -> new DASMockTable(100),
+    "in_memory" -> new DASMockInMemoryTable(dasMockStorage),
+    "all_types" -> new DASMockAllTypesTable(100),
+    "slow" -> new DASMockTable(10, sleepPerRowMills = 500),
+    "broken" -> new DASMockTable(10, breakOnRow = 5),
+    "events" -> new DASMockEventTable)
+
+  override def getTable(name: String): Option[DASTable] = tables.get(name)
 
   override def getFunction(name: String): Option[DASFunction] = {
     None
