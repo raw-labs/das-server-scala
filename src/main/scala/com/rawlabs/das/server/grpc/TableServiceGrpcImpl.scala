@@ -12,29 +12,23 @@
 
 package com.rawlabs.das.server.grpc
 
-import java.time.Instant
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
 import scala.jdk.CollectionConverters._
 import scala.jdk.OptionConverters._
 import scala.util.{Failure, Success}
-import com.rawlabs.das.sdk.{DASExecuteResult, DASSdk, DASSdkUnsupportedException, DASTable}
-import com.rawlabs.das.server.cache.catalog.CacheDefinition
-import com.rawlabs.das.server.cache.iterator.QueryProcessorFlow
-import com.rawlabs.das.server.cache.manager.CacheManager
-import com.rawlabs.das.server.cache.manager.CacheManager.{GetIterator, WrappedGetIterator}
-import com.rawlabs.das.server.cache.queue.{CloseableIterator, DataProducingTask}
 
-import com.rawlabs.das.sdk.DASExecuteResult
+import com.rawlabs.das.sdk.{DASExecuteResult, DASSdk, DASSdkUnsupportedException, DASTable}
 import com.rawlabs.das.server.manager.DASSdkManager
+import com.rawlabs.protocol.das.v1.common.DASId
 import com.rawlabs.protocol.das.v1.services._
 import com.rawlabs.protocol.das.v1.tables._
 import com.typesafe.scalalogging.StrictLogging
+
 import akka.NotUsed
 import akka.actor.typed.Scheduler
 import akka.stream.scaladsl.{Keep, Sink, Source}
 import akka.stream.{KillSwitches, Materializer, UniqueKillSwitch}
-import com.rawlabs.protocol.das.v1.common.DASId
 import io.grpc.stub.{ServerCallStreamObserver, StreamObserver}
 import io.grpc.{Status, StatusRuntimeException}
 
@@ -62,11 +56,11 @@ class TableServiceGrpcImpl(provider: DASSdkManager, batchLatency: FiniteDuration
       responseObserver: StreamObserver[GetTableDefinitionsResponse]): Unit = {
     logger.debug(s"Fetching table definitions for DAS ID: ${request.getDasId}")
     withDAS(request.getDasId, responseObserver) { das =>
-    val tableDefinitions = das.getTableDefinitions
-    val response = GetTableDefinitionsResponse.newBuilder().addAllDefinitions(tableDefinitions).build()
-    responseObserver.onNext(response)
-    responseObserver.onCompleted()
-    logger.debug("Table definitions sent successfully.")
+      val tableDefinitions = das.getTableDefinitions
+      val response = GetTableDefinitionsResponse.newBuilder().addAllDefinitions(tableDefinitions).build()
+      responseObserver.onNext(response)
+      responseObserver.onCompleted()
+      logger.debug("Table definitions sent successfully.")
     }
   }
 
@@ -81,13 +75,13 @@ class TableServiceGrpcImpl(provider: DASSdkManager, batchLatency: FiniteDuration
       responseObserver: StreamObserver[GetTableEstimateResponse]): Unit = {
     logger.debug(s"Fetching table size for Table ID: ${request.getTableId.getName}")
     withTable(request.getDasId, request.getTableId, responseObserver) { table =>
-        val relSizeResult = table.getTableEstimate(request.getQualsList, request.getColumnsList)
-        val rows = relSizeResult.getExpectedNumberOfRows
-        val bytes = relSizeResult.getAvgRowWidthBytes
-        val response = GetTableEstimateResponse.newBuilder().setRows(rows).setBytes(bytes).build()
-        responseObserver.onNext(response)
-        responseObserver.onCompleted()
-        logger.debug(s"Table size (rows: $rows, bytes: $bytes) sent successfully.")
+      val relSizeResult = table.getTableEstimate(request.getQualsList, request.getColumnsList)
+      val rows = relSizeResult.getExpectedNumberOfRows
+      val bytes = relSizeResult.getAvgRowWidthBytes
+      val response = GetTableEstimateResponse.newBuilder().setRows(rows).setBytes(bytes).build()
+      responseObserver.onNext(response)
+      responseObserver.onCompleted()
+      logger.debug(s"Table size (rows: $rows, bytes: $bytes) sent successfully.")
     }
   }
 
@@ -103,11 +97,11 @@ class TableServiceGrpcImpl(provider: DASSdkManager, batchLatency: FiniteDuration
     logger.debug(s"Fetching table sort orders for Table ID: ${request.getTableId.getName}")
     withTable(request.getDasId, request.getTableId, responseObserver) { table =>
       val sortKeys = table.getTableSortOrders(request.getSortKeysList)
-        val response = GetTableSortOrdersResponse.newBuilder().addAllSortKeys(sortKeys).build()
-        responseObserver.onNext(response)
-        responseObserver.onCompleted()
-        logger.debug("Table sort orders sent successfully.")
-          }
+      val response = GetTableSortOrdersResponse.newBuilder().addAllSortKeys(sortKeys).build()
+      responseObserver.onNext(response)
+      responseObserver.onCompleted()
+      logger.debug("Table sort orders sent successfully.")
+    }
   }
 
   /**
@@ -122,12 +116,13 @@ class TableServiceGrpcImpl(provider: DASSdkManager, batchLatency: FiniteDuration
     logger.debug(s"Fetching table path keys for Table ID: ${request.getTableId.getName}")
     withTable(request.getDasId, request.getTableId, responseObserver) { table =>
       val pathKeys = table.getTablePathKeys
-        val response = GetTablePathKeysResponse.newBuilder().addAllPathKeys(pathKeys).build()
-        responseObserver.onNext(response)
-        responseObserver.onCompleted()
-        logger.debug("Table path keys sent successfully.")
+      val response = GetTablePathKeysResponse.newBuilder().addAllPathKeys(pathKeys).build()
+      responseObserver.onNext(response)
+      responseObserver.onCompleted()
+      logger.debug("Table path keys sent successfully.")
 
-  }}
+    }
+  }
 
   /**
    * Provides an explanation of the query execution plan.
@@ -141,11 +136,12 @@ class TableServiceGrpcImpl(provider: DASSdkManager, batchLatency: FiniteDuration
     logger.debug(s"Explaining query for Table ID: ${request.getTableId.getName}")
     withTable(request.getDasId, request.getTableId, responseObserver) { table =>
       try {
-      val explanation =
+        val explanation =
           table.explain(
             request.getQuery.getQualsList,
             request.getQuery.getColumnsList,
-            request.getQuery.getSortKeysList)
+            request.getQuery.getSortKeysList,
+            if (request.getQuery.hasLimit) java.lang.Long.valueOf(request.getQuery.getLimit) else null)
         val response = ExplainTableResponse.newBuilder().addAllStmts(explanation).build()
         responseObserver.onNext(response)
         responseObserver.onCompleted()
@@ -154,8 +150,7 @@ class TableServiceGrpcImpl(provider: DASSdkManager, batchLatency: FiniteDuration
         case t: Throwable =>
           logger.error("Error explaining query", t)
           responseObserver.onError(
-            Status.INVALID_ARGUMENT.withDescription("Error explaining query").withCause(t).asRuntimeException()
-          )
+            Status.INVALID_ARGUMENT.withDescription("Error explaining query").withCause(t).asRuntimeException())
       }
     }
   }
@@ -191,11 +186,12 @@ class TableServiceGrpcImpl(provider: DASSdkManager, batchLatency: FiniteDuration
     }
     // 1) Attempt to get the table from provider
     withTable(request.getDasId, request.getTableId, responseObserver) { table =>
-    val quals = request.getQuery.getQualsList.asScala.toSeq
-        val columns = request.getQuery.getColumnsList.asScala.toSeq
-        val sortKeys = request.getQuery.getSortKeysList.asScala.toSeq
-        val maybeLimit = request.getQuery.getLimit // optional, maybe null
+      val quals = request.getQuery.getQualsList.asScala.toSeq
+      val columns = request.getQuery.getColumnsList.asScala.toSeq
+      val sortKeys = request.getQuery.getSortKeysList.asScala.toSeq
+      val maybeLimit = if (request.getQuery.hasLimit) java.lang.Long.valueOf(request.getQuery.getLimit) else null
 
+      try {
         val dasExecuteResult: DASExecuteResult =
           table.execute(quals.asJava, columns.asJava, sortKeys.asJava, maybeLimit)
 
@@ -206,6 +202,12 @@ class TableServiceGrpcImpl(provider: DASSdkManager, batchLatency: FiniteDuration
 
         val (doneF, ks) = runStreamedResult(source, request, responseObserver, maybeServerCallObs)
         killSwitchRef.set(Some(ks))
+      } catch {
+        case t: Throwable =>
+          logger.error("Error explaining query", t)
+          responseObserver.onError(
+            Status.INVALID_ARGUMENT.withDescription("Error explaining query").withCause(t).asRuntimeException())
+      }
 
     }
   }
@@ -302,14 +304,13 @@ class TableServiceGrpcImpl(provider: DASSdkManager, batchLatency: FiniteDuration
         responseObserver.onCompleted()
         logger.debug("Unique column information sent successfully.")
       } catch {
-        case t: DASSdkUnsupportedException => responseObserver.onError(
-            Status.INVALID_ARGUMENT.withDescription("Unsupported operation").withCause(t).asRuntimeException()
-          )
+        case t: DASSdkUnsupportedException =>
+          responseObserver.onError(
+            Status.INVALID_ARGUMENT.withDescription("Unsupported operation").withCause(t).asRuntimeException())
         case t: Throwable =>
           logger.error("Error fetching unique column", t)
           responseObserver.onError(
-            Status.INTERNAL.withDescription("Error fetching unique column").withCause(t).asRuntimeException()
-          )
+            Status.INTERNAL.withDescription("Error fetching unique column").withCause(t).asRuntimeException())
       }
     }
   }
@@ -325,11 +326,11 @@ class TableServiceGrpcImpl(provider: DASSdkManager, batchLatency: FiniteDuration
       responseObserver: StreamObserver[GetBulkInsertTableSizeResponse]): Unit = {
     logger.debug(s"Fetching bulk insert size for Table ID: ${request.getTableId.getName}")
     withTable(request.getDasId, request.getTableId, responseObserver) { table =>
-        val batchSize = table.bulkInsertBatchSize()
-        val response = GetBulkInsertTableSizeResponse.newBuilder().setSize(batchSize).build()
-        responseObserver.onNext(response)
-        responseObserver.onCompleted()
-        logger.debug("Bulk insert size retrieved successfully.")
+      val batchSize = table.bulkInsertBatchSize()
+      val response = GetBulkInsertTableSizeResponse.newBuilder().setSize(batchSize).build()
+      responseObserver.onNext(response)
+      responseObserver.onCompleted()
+      logger.debug("Bulk insert size retrieved successfully.")
     }
   }
 
@@ -351,8 +352,7 @@ class TableServiceGrpcImpl(provider: DASSdkManager, batchLatency: FiniteDuration
         case t: Throwable =>
           logger.error("Error inserting row", t)
           responseObserver.onError(
-            Status.INVALID_ARGUMENT.withDescription("Error inserting row").withCause(t).asRuntimeException()
-          )
+            Status.INVALID_ARGUMENT.withDescription("Error inserting row").withCause(t).asRuntimeException())
       }
     }
   }
@@ -377,8 +377,7 @@ class TableServiceGrpcImpl(provider: DASSdkManager, batchLatency: FiniteDuration
         case t: Throwable =>
           logger.error("Error inserting rows", t)
           responseObserver.onError(
-            Status.INVALID_ARGUMENT.withDescription("Error inserting rows").withCause(t).asRuntimeException()
-          )
+            Status.INVALID_ARGUMENT.withDescription("Error inserting rows").withCause(t).asRuntimeException())
       }
     }
   }
@@ -401,8 +400,7 @@ class TableServiceGrpcImpl(provider: DASSdkManager, batchLatency: FiniteDuration
         case t: Throwable =>
           logger.error("Error updating row", t)
           responseObserver.onError(
-            Status.INVALID_ARGUMENT.withDescription("Error updating row").withCause(t).asRuntimeException()
-          )
+            Status.INVALID_ARGUMENT.withDescription("Error updating row").withCause(t).asRuntimeException())
       }
     }
   }
@@ -425,8 +423,7 @@ class TableServiceGrpcImpl(provider: DASSdkManager, batchLatency: FiniteDuration
         case t: Throwable =>
           logger.error("Error deleting row", t)
           responseObserver.onError(
-            Status.INVALID_ARGUMENT.withDescription("Error deleting row").withCause(t).asRuntimeException()
-          )
+            Status.INVALID_ARGUMENT.withDescription("Error deleting row").withCause(t).asRuntimeException())
       }
     }
   }
@@ -441,8 +438,7 @@ class TableServiceGrpcImpl(provider: DASSdkManager, batchLatency: FiniteDuration
   }
 
   private def withTable(DASId: DASId, table: TableId, responseObserver: StreamObserver[_])(
-      f: DASTable => Unit
-  ): Unit = {
+      f: DASTable => Unit): Unit = {
     withDAS(DASId, responseObserver) { das =>
       val tableName = table.getName
       das.getTable(tableName).toScala match {
@@ -453,8 +449,7 @@ class TableServiceGrpcImpl(provider: DASSdkManager, batchLatency: FiniteDuration
           responseObserver.onError(
             Status.INVALID_ARGUMENT
               .withDescription(s"Table $tableName not found")
-              .asRuntimeException()
-          )
+              .asRuntimeException())
         case Some(table) => f(table)
       }
     }

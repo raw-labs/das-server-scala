@@ -29,7 +29,11 @@ class DASMockTable(maxRows: Int, sleepPerRowMills: Int = 0, breakOnRow: Int = -1
     DASTable.TableEstimate(maxRows, 100)
   }
 
-  override def explain(quals: Seq[Qual], columns: Seq[String], sortKeys: Seq[SortKey]): Seq[String] = Seq.empty
+  override def explain(
+      quals: Seq[Qual],
+      columns: Seq[String],
+      sortKeys: Seq[SortKey],
+      maybeLimit: Option[Long]): Seq[String] = Seq.empty
 
   /**
    * A SELECT statement is executed by calling the execute method. Quals, colums, sortKeys, limit help to filter,
