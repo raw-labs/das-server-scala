@@ -200,7 +200,7 @@ class TableServiceGrpcImpl(provider: DASSdkManager, batchLatency: FiniteDuration
           read = r => if (r.hasNext) Some(r.next()) else None,
           close = r => r.close())
 
-        val (doneF, ks) = runStreamedResult(source, request, responseObserver, maybeServerCallObs)
+        val ks = runStreamedResult(source, request, responseObserver, maybeServerCallObs)
         killSwitchRef.set(Some(ks))
       } catch {
         case t: Throwable =>
@@ -283,8 +283,8 @@ class TableServiceGrpcImpl(provider: DASSdkManager, batchLatency: FiniteDuration
         }
     }(ec)
 
-    // Return the Future and the KillSwitch
-    (doneF, killSwitch)
+    // Return the KillSwitch
+    killSwitch
   }
 
   /**
