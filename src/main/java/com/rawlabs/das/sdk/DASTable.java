@@ -78,7 +78,7 @@ public interface DASTable {
    * @param sortKeys sort keys to apply
    * @return a list of explanation lines
    */
-  default List<String> explain(List<Qual> quals, List<String> columns, List<SortKey> sortKeys) {
+  default List<String> explain(List<Qual> quals, List<String> columns, List<SortKey> sortKeys, Long maybeLimit) {
     return Collections.emptyList();
   }
 

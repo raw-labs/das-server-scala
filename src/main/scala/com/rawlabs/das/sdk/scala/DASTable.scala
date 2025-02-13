@@ -58,7 +58,8 @@ trait DASTable {
    * @param sortKeys sort keys to apply
    * @return a list of explanation lines
    */
-  def explain(quals: Seq[Qual], columns: Seq[String], sortKeys: Seq[SortKey]): Seq[String] = Seq.empty
+  def explain(quals: Seq[Qual], columns: Seq[String], sortKeys: Seq[SortKey], maybeLimit: Option[Long]): Seq[String] =
+    Seq.empty
 
   /**
    * Execute a query operation on a table.

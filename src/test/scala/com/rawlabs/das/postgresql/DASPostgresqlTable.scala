@@ -48,6 +48,14 @@ class DASPostgresqlTable(backend: PostgresqlBackend, schema: String, defn: Table
     backend.estimate(sql)
   }
 
+  override def explain(
+      quals: Seq[Qual],
+      columns: Seq[String],
+      sortKeys: Seq[SortKey],
+      maybeLimit: Option[Long]): Seq[String] = {
+    mkSQL(quals, columns, sortKeys, maybeLimit).split("\n").toSeq
+  }
+
   /**
    * Execute a query operation on a table.
    *
@@ -62,6 +70,10 @@ class DASPostgresqlTable(backend: PostgresqlBackend, schema: String, defn: Table
       sortKeys: Seq[SortKey],
       maybeLimit: Option[Long]): DASExecuteResult = {
 
+    backend.execute(mkSQL(quals, columns, sortKeys, maybeLimit))
+  }
+
+  private def mkSQL(quals: Seq[Qual], columns: Seq[String], sortKeys: Seq[SortKey], maybeLimit: Option[Long]) = {
     // Build SELECT list
     val selectClause =
       if (columns.isEmpty) "1"
@@ -80,12 +92,8 @@ class DASPostgresqlTable(backend: PostgresqlBackend, schema: String, defn: Table
     // Build LIMIT
     val limitClause = maybeLimit.map(l => s"\nLIMIT $l").getOrElse("")
 
-    val sql =
-      s"SELECT $selectClause FROM ${quoteIdentifier(schema)}.${quoteIdentifier(defn.getTableId.getName)}" + whereClause + orderByClause + limitClause
+    s"SELECT $selectClause FROM ${quoteIdentifier(schema)}.${quoteIdentifier(defn.getTableId.getName)}" + whereClause + orderByClause + limitClause
 
-    println(s"Executing SQL: $sql")
-
-    backend.execute(sql)
   }
 
   private def quoteIdentifier(ident: String): String = {

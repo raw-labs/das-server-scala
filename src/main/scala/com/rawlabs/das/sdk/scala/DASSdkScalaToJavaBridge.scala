@@ -63,8 +63,9 @@ class DASTableScalaToJavaBridge(scalaTable: DASTable) extends com.rawlabs.das.sd
   final override def explain(
       quals: util.List[Qual],
       columns: util.List[String],
-      sortKeys: util.List[SortKey]): util.List[String] = scalaTable
-    .explain(quals.asScala.toSeq, columns.asScala.toSeq, sortKeys.asScala.toSeq)
+      sortKeys: util.List[SortKey],
+      maybeLimit: java.lang.Long): util.List[String] = scalaTable
+    .explain(quals.asScala.toSeq, columns.asScala.toSeq, sortKeys.asScala.toSeq, Option(maybeLimit).map(_.toLong))
     .asJava
 
   final override def execute(
@@ -72,7 +73,11 @@ class DASTableScalaToJavaBridge(scalaTable: DASTable) extends com.rawlabs.das.sd
       columns: util.List[String],
       sortKeys: util.List[SortKey],
       maybeLimit: java.lang.Long): DASExecuteResult =
-    scalaTable.execute(quals.asScala.toSeq, columns.asScala.toSeq, sortKeys.asScala.toSeq, Option(maybeLimit))
+    scalaTable.execute(
+      quals.asScala.toSeq,
+      columns.asScala.toSeq,
+      sortKeys.asScala.toSeq,
+      Option(maybeLimit).map(_.toLong))
 
   final override def uniqueColumn: String = scalaTable.uniqueColumn
 
