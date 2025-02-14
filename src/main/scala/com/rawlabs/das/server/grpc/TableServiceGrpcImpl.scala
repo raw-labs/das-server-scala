@@ -12,25 +12,24 @@
 
 package com.rawlabs.das.server.grpc
 
-import scala.concurrent.ExecutionContext
-import scala.concurrent.duration.{DurationInt, FiniteDuration}
-import scala.jdk.CollectionConverters._
-import scala.jdk.OptionConverters._
-import scala.util.{Failure, Success}
-
+import akka.NotUsed
+import akka.actor.typed.Scheduler
+import akka.stream.scaladsl.{Keep, Sink, Source}
+import akka.stream.{KillSwitches, Materializer, UniqueKillSwitch}
 import com.rawlabs.das.sdk.{DASExecuteResult, DASSdk, DASSdkUnsupportedException, DASTable}
 import com.rawlabs.das.server.manager.DASSdkManager
 import com.rawlabs.protocol.das.v1.common.DASId
 import com.rawlabs.protocol.das.v1.services._
 import com.rawlabs.protocol.das.v1.tables._
 import com.typesafe.scalalogging.StrictLogging
-
-import akka.NotUsed
-import akka.actor.typed.Scheduler
-import akka.stream.scaladsl.{Keep, Sink, Source}
-import akka.stream.{KillSwitches, Materializer, UniqueKillSwitch}
 import io.grpc.stub.{ServerCallStreamObserver, StreamObserver}
 import io.grpc.{Status, StatusRuntimeException}
+
+import scala.concurrent.ExecutionContext
+import scala.concurrent.duration.{DurationInt, FiniteDuration}
+import scala.jdk.CollectionConverters._
+import scala.jdk.OptionConverters._
+import scala.util.{Failure, Success}
 
 /**
  * Implementation of the gRPC service for handling table-related operations.
@@ -186,12 +185,20 @@ class TableServiceGrpcImpl(provider: DASSdkManager, batchLatency: FiniteDuration
     }
     // 1) Attempt to get the table from provider
     withTable(request.getDasId, request.getTableId, responseObserver) { table =>
-      val quals = request.getQuery.getQualsList.asScala.toSeq
-      val columns = request.getQuery.getColumnsList.asScala.toSeq
-      val sortKeys = request.getQuery.getSortKeysList.asScala.toSeq
-      val maybeLimit = if (request.getQuery.hasLimit) java.lang.Long.valueOf(request.getQuery.getLimit) else null
-
-      try {
+      def runQuery() = {
+        val quals = request.getQuery.getQualsList.asScala.toSeq
+        val columns = request.getQuery.getColumnsList.asScala.toSeq
+        val sortKeys = request.getQuery.getSortKeysList.asScala.toSeq
+        val maybeLimit = if (request.getQuery.hasLimit) java.lang.Long.valueOf(request.getQuery.getLimit) else null
+        val clientMaxBytes = {
+          if (request.hasMaxBatchSizeBytes) {
+            // We multiply by 3/4 to leave some room for gRPC overhead
+            request.getMaxBatchSizeBytes * 3 / 4
+          } else {
+            // Default to 2M
+            2_000_000
+          }
+        }
         val dasExecuteResult: DASExecuteResult =
           table.execute(quals.asJava, columns.asJava, sortKeys.asJava, maybeLimit)
 
@@ -200,7 +207,21 @@ class TableServiceGrpcImpl(provider: DASSdkManager, batchLatency: FiniteDuration
           read = r => if (r.hasNext) Some(r.next()) else None,
           close = r => r.close())
 
-        val ks = runStreamedResult(source, request, responseObserver, maybeServerCallObs)
+        // Build a stream that splits the rows by the client's max byte size
+        source
+          // Group rows by size (but also by time if source is slow). Assume a minimum size of 8 bytes per row.
+          .groupedWeightedWithin(clientMaxBytes, batchLatency)(row => Math.max(row.getSerializedSize.toLong, 8))
+          .map { batchOfRows =>
+            Rows
+              .newBuilder()
+              .addAllRows(batchOfRows.asJava)
+              .build()
+          }
+      }
+
+      try {
+        val rowBatches = runQuery()
+        val ks = runStreamedResult(rowBatches, request, responseObserver, maybeServerCallObs)
         killSwitchRef.set(Some(ks))
       } catch {
         case t: Throwable =>
@@ -217,33 +238,10 @@ class TableServiceGrpcImpl(provider: DASSdkManager, batchLatency: FiniteDuration
    * cancelled.
    */
   private def runStreamedResult(
-      source: Source[Row, NotUsed],
+      rowBatches: Source[Rows, NotUsed],
       request: ExecuteTableRequest,
       responseObserver: StreamObserver[Rows],
       maybeServerCallObs: Option[ServerCallStreamObserver[Rows]]) = {
-
-    // Define the maximum bytes per chunk
-    val clientMaxBytes = {
-      if (request.hasMaxBatchSizeBytes) {
-        // We multiply by 3/4 to leave some room for gRPC overhead
-        request.getMaxBatchSizeBytes * 3 / 4
-      } else {
-        // Default to 2M
-        2_000_000
-      }
-
-    }
-
-    // Build a stream that splits the rows by the client's max byte size
-    val rowBatches = source
-      // Group rows by size (but also by time if source is slow). Assume a minimum size of 8 bytes per row.
-      .groupedWeightedWithin(clientMaxBytes, batchLatency)(row => Math.max(row.getSerializedSize.toLong, 8))
-      .map { batchOfRows =>
-        Rows
-          .newBuilder()
-          .addAllRows(batchOfRows.asJava)
-          .build()
-      }
 
     // Create a KillSwitch and integrate it within the stream
     val (killSwitch, doneF) =
