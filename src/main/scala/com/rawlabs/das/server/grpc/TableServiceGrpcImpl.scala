@@ -13,11 +13,13 @@
 package com.rawlabs.das.server.grpc
 
 import java.time.Instant
+
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
 import scala.jdk.CollectionConverters._
 import scala.jdk.OptionConverters._
 import scala.util.{Failure, Success}
+
 import com.rawlabs.das.sdk.{DASExecuteResult, DASSdk, DASSdkUnsupportedException, DASTable}
 import com.rawlabs.das.server.cache.catalog.CacheDefinition
 import com.rawlabs.das.server.cache.iterator.QueryProcessorFlow
@@ -25,15 +27,16 @@ import com.rawlabs.das.server.cache.manager.CacheManager
 import com.rawlabs.das.server.cache.manager.CacheManager.{GetIterator, WrappedGetIterator}
 import com.rawlabs.das.server.cache.queue.{CloseableIterator, DataProducingTask}
 import com.rawlabs.das.server.manager.DASSdkManager
+import com.rawlabs.protocol.das.v1.common.DASId
 import com.rawlabs.protocol.das.v1.services._
 import com.rawlabs.protocol.das.v1.tables._
 import com.typesafe.scalalogging.StrictLogging
+
 import akka.NotUsed
 import akka.actor.typed.scaladsl.AskPattern.Askable
 import akka.actor.typed.{ActorRef, Scheduler}
 import akka.stream.scaladsl.{Flow, Keep, Sink, Source}
 import akka.stream.{KillSwitches, Materializer, UniqueKillSwitch}
-import com.rawlabs.protocol.das.v1.common.DASId
 import io.grpc.stub.{ServerCallStreamObserver, StreamObserver}
 import io.grpc.{Status, StatusRuntimeException}
 
@@ -64,11 +67,11 @@ class TableServiceGrpcImpl(
       responseObserver: StreamObserver[GetTableDefinitionsResponse]): Unit = {
     logger.debug(s"Fetching table definitions for DAS ID: ${request.getDasId}")
     withDAS(request.getDasId, responseObserver) { das =>
-    val tableDefinitions = das.getTableDefinitions
-    val response = GetTableDefinitionsResponse.newBuilder().addAllDefinitions(tableDefinitions).build()
-    responseObserver.onNext(response)
-    responseObserver.onCompleted()
-    logger.debug("Table definitions sent successfully.")
+      val tableDefinitions = das.getTableDefinitions
+      val response = GetTableDefinitionsResponse.newBuilder().addAllDefinitions(tableDefinitions).build()
+      responseObserver.onNext(response)
+      responseObserver.onCompleted()
+      logger.debug("Table definitions sent successfully.")
     }
   }
 
@@ -83,13 +86,13 @@ class TableServiceGrpcImpl(
       responseObserver: StreamObserver[GetTableEstimateResponse]): Unit = {
     logger.debug(s"Fetching table size for Table ID: ${request.getTableId.getName}")
     withTable(request.getDasId, request.getTableId, responseObserver) { table =>
-        val relSizeResult = table.getTableEstimate(request.getQualsList, request.getColumnsList)
-        val rows = relSizeResult.getExpectedNumberOfRows
-        val bytes = relSizeResult.getAvgRowWidthBytes
-        val response = GetTableEstimateResponse.newBuilder().setRows(rows).setBytes(bytes).build()
-        responseObserver.onNext(response)
-        responseObserver.onCompleted()
-        logger.debug(s"Table size (rows: $rows, bytes: $bytes) sent successfully.")
+      val relSizeResult = table.getTableEstimate(request.getQualsList, request.getColumnsList)
+      val rows = relSizeResult.getExpectedNumberOfRows
+      val bytes = relSizeResult.getAvgRowWidthBytes
+      val response = GetTableEstimateResponse.newBuilder().setRows(rows).setBytes(bytes).build()
+      responseObserver.onNext(response)
+      responseObserver.onCompleted()
+      logger.debug(s"Table size (rows: $rows, bytes: $bytes) sent successfully.")
     }
   }
 
@@ -105,11 +108,11 @@ class TableServiceGrpcImpl(
     logger.debug(s"Fetching table sort orders for Table ID: ${request.getTableId.getName}")
     withTable(request.getDasId, request.getTableId, responseObserver) { table =>
       val sortKeys = table.getTableSortOrders(request.getSortKeysList)
-        val response = GetTableSortOrdersResponse.newBuilder().addAllSortKeys(sortKeys).build()
-        responseObserver.onNext(response)
-        responseObserver.onCompleted()
-        logger.debug("Table sort orders sent successfully.")
-          }
+      val response = GetTableSortOrdersResponse.newBuilder().addAllSortKeys(sortKeys).build()
+      responseObserver.onNext(response)
+      responseObserver.onCompleted()
+      logger.debug("Table sort orders sent successfully.")
+    }
   }
 
   /**
@@ -124,12 +127,13 @@ class TableServiceGrpcImpl(
     logger.debug(s"Fetching table path keys for Table ID: ${request.getTableId.getName}")
     withTable(request.getDasId, request.getTableId, responseObserver) { table =>
       val pathKeys = table.getTablePathKeys
-        val response = GetTablePathKeysResponse.newBuilder().addAllPathKeys(pathKeys).build()
-        responseObserver.onNext(response)
-        responseObserver.onCompleted()
-        logger.debug("Table path keys sent successfully.")
+      val response = GetTablePathKeysResponse.newBuilder().addAllPathKeys(pathKeys).build()
+      responseObserver.onNext(response)
+      responseObserver.onCompleted()
+      logger.debug("Table path keys sent successfully.")
 
-  }}
+    }
+  }
 
   /**
    * Provides an explanation of the query execution plan.
@@ -143,7 +147,7 @@ class TableServiceGrpcImpl(
     logger.debug(s"Explaining query for Table ID: ${request.getTableId.getName}")
     withTable(request.getDasId, request.getTableId, responseObserver) { table =>
       try {
-      val explanation =
+        val explanation =
           table.explain(
             request.getQuery.getQualsList,
             request.getQuery.getColumnsList,
@@ -156,8 +160,7 @@ class TableServiceGrpcImpl(
         case t: Throwable =>
           logger.error("Error explaining query", t)
           responseObserver.onError(
-            Status.INVALID_ARGUMENT.withDescription("Error explaining query").withCause(t).asRuntimeException()
-          )
+            Status.INVALID_ARGUMENT.withDescription("Error explaining query").withCause(t).asRuntimeException())
       }
     }
   }
@@ -193,107 +196,107 @@ class TableServiceGrpcImpl(
     }
     // 1) Attempt to get the table from provider
     withTable(request.getDasId, request.getTableId, responseObserver) { table =>
-    val quals = request.getQuery.getQualsList.asScala.toSeq
-        val columns = request.getQuery.getColumnsList.asScala.toSeq
-        val sortKeys = request.getQuery.getSortKeysList.asScala.toSeq
-        val minCreationDate = {
-          if (request.hasMaxCacheAge) {
-            // The request embeds a maxCacheAge. Use it to set a minCreationDate.
-            val maxCacheAge = request.getMaxCacheAge
-            val nanos = maxCacheAge.getSeconds * 1_000_000_000 + maxCacheAge.getNanos
-            assert(nanos >= 0, "maxCacheAge must be non-negative")
-            Some(Instant.now().minusNanos(nanos))
-          } else {
-            // No cache age specified. Don't use caches.
-            None
-          }
+      val quals = request.getQuery.getQualsList.asScala.toSeq
+      val columns = request.getQuery.getColumnsList.asScala.toSeq
+      val sortKeys = request.getQuery.getSortKeysList.asScala.toSeq
+      val minCreationDate = {
+        if (request.hasMaxCacheAge) {
+          // The request embeds a maxCacheAge. Use it to set a minCreationDate.
+          val maxCacheAge = request.getMaxCacheAge
+          val nanos = maxCacheAge.getSeconds * 1_000_000_000 + maxCacheAge.getNanos
+          assert(nanos >= 0, "maxCacheAge must be non-negative")
+          Some(Instant.now().minusNanos(nanos))
+        } else {
+          // No cache age specified. Don't use caches.
+          None
         }
+      }
 
-        // Build a data-producing task for the table, if the cache manager needs to create a new cache
-        val makeTask = () =>
-          new DataProducingTask[Row] {
-            override def run(): CloseableIterator[Row] = {
-              // table.execute(...) returns a CloseableIterator[Row], presumably
-              val dasExecuteResult: DASExecuteResult = table.execute(quals.asJava, columns.asJava, sortKeys.asJava)
+      // Build a data-producing task for the table, if the cache manager needs to create a new cache
+      val makeTask = () =>
+        new DataProducingTask[Row] {
+          override def run(): CloseableIterator[Row] = {
+            // table.execute(...) returns a CloseableIterator[Row], presumably
+            val dasExecuteResult: DASExecuteResult = table.execute(quals.asJava, columns.asJava, sortKeys.asJava)
 
-              // Adapt DASExecuteResult to CloseableIterator
-              new CloseableIterator[Row] {
-                override def hasNext: Boolean = dasExecuteResult.hasNext
+            // Adapt DASExecuteResult to CloseableIterator
+            new CloseableIterator[Row] {
+              override def hasNext: Boolean = dasExecuteResult.hasNext
 
-                override def next(): Row = dasExecuteResult.next()
+              override def next(): Row = dasExecuteResult.next()
 
-                override def close(): Unit = dasExecuteResult.close()
-              }
+              override def close(): Unit = dasExecuteResult.close()
             }
           }
-        // ^ returns a CloseableIterator[Row] presumably, or some adapter
-
-        // 2) Ask the CacheManager for a Source[Row, _]
-        import akka.util.Timeout
-        implicit val timeout: Timeout = Timeout.create(java.time.Duration.ofSeconds(3))
-
-        val futureAck = cacheManager.ask[CacheManager.GetIteratorAck[Row]] { replyTo =>
-          WrappedGetIterator(
-            GetIterator(
-              dasId = request.getDasId.getId,
-              definition = CacheDefinition(
-                tableId = request.getTableId.getName,
-                quals = quals,
-                columns = columns,
-                sortKeys = sortKeys),
-              minCreationDate = minCreationDate,
-              makeTask = makeTask,
-              codec = new RowCodec,
-              replyTo = replyTo))
         }
+      // ^ returns a CloseableIterator[Row] presumably, or some adapter
 
-        futureAck.onComplete {
-          case Failure(ex) =>
-            logger.error("CacheManager lookup failed", ex)
-            responseObserver.onError(
-              new StatusRuntimeException(Status.INTERNAL.withDescription("CacheManager lookup failed")))
+      // 2) Ask the CacheManager for a Source[Row, _]
+      import akka.util.Timeout
+      implicit val timeout: Timeout = Timeout.create(java.time.Duration.ofSeconds(3))
 
-          case Success(ack) =>
-            // The ack gives us a future Option[Source[Row, _]]
-            ack.sourceFuture.onComplete {
-              case Failure(err) =>
-                logger.error("Failed to subscribe to cached data source", err)
-                responseObserver.onError(
-                  new StatusRuntimeException(
-                    Status.INTERNAL.withDescription(s"Failed to subscribe to cached data source: $err")))
+      val futureAck = cacheManager.ask[CacheManager.GetIteratorAck[Row]] { replyTo =>
+        WrappedGetIterator(
+          GetIterator(
+            dasId = request.getDasId.getId,
+            definition = CacheDefinition(
+              tableId = request.getTableId.getName,
+              quals = quals,
+              columns = columns,
+              sortKeys = sortKeys),
+            minCreationDate = minCreationDate,
+            makeTask = makeTask,
+            codec = new RowCodec,
+            replyTo = replyTo))
+      }
 
-              case Success(None) =>
-                // Means the data source is not available or stopped
-                logger.warn("CacheManager returned None => no data source.")
-                responseObserver.onCompleted()
+      futureAck.onComplete {
+        case Failure(ex) =>
+          logger.error("CacheManager lookup failed", ex)
+          responseObserver.onError(
+            new StatusRuntimeException(Status.INTERNAL.withDescription("CacheManager lookup failed")))
 
-              case Success(Some(cachedSource)) =>
-                // 3) Build a flow that applies filtering + projection
-                //    (purely streamed row-by-row, no large in-memory collections).
-                //
-                // If you have a QueryProcessor that can produce a Flow:
-                //   val queryFlow = new QueryProcessor().asFlow(quals, columns)
-                //
-                // Or if using QueryProcessorFlow directly:
-                //   val queryFlow = QueryProcessorFlow(quals, columns)
-                //
-                // For illustration:
-                val queryFlow: Flow[Row, Row, NotUsed] =
-                  QueryProcessorFlow(quals, columns)
+        case Success(ack) =>
+          // The ack gives us a future Option[Source[Row, _]]
+          ack.sourceFuture.onComplete {
+            case Failure(err) =>
+              logger.error("Failed to subscribe to cached data source", err)
+              responseObserver.onError(
+                new StatusRuntimeException(
+                  Status.INTERNAL.withDescription(s"Failed to subscribe to cached data source: $err")))
 
-                // 4) Merge the cached source with the flow
-                val finalSource: Source[Row, NotUsed] =
-                  cachedSource
-                    .via(queryFlow)
-                    .mapMaterializedValue(_ => NotUsed)
+            case Success(None) =>
+              // Means the data source is not available or stopped
+              logger.warn("CacheManager returned None => no data source.")
+              responseObserver.onCompleted()
 
-                // 5) Chunk the final stream and push to gRPC observer
-                val (doneF, ks) = runStreamedResult(finalSource, request, responseObserver, maybeServerCallObs)
-                // 6) Set the missing kill switch
-                killSwitchRef.set(Some(ks))
-                doneF
-            }
-        }
+            case Success(Some(cachedSource)) =>
+              // 3) Build a flow that applies filtering + projection
+              //    (purely streamed row-by-row, no large in-memory collections).
+              //
+              // If you have a QueryProcessor that can produce a Flow:
+              //   val queryFlow = new QueryProcessor().asFlow(quals, columns)
+              //
+              // Or if using QueryProcessorFlow directly:
+              //   val queryFlow = QueryProcessorFlow(quals, columns)
+              //
+              // For illustration:
+              val queryFlow: Flow[Row, Row, NotUsed] =
+                QueryProcessorFlow(quals, columns)
+
+              // 4) Merge the cached source with the flow
+              val finalSource: Source[Row, NotUsed] =
+                cachedSource
+                  .via(queryFlow)
+                  .mapMaterializedValue(_ => NotUsed)
+
+              // 5) Chunk the final stream and push to gRPC observer
+              val (doneF, ks) = runStreamedResult(finalSource, request, responseObserver, maybeServerCallObs)
+              // 6) Set the missing kill switch
+              killSwitchRef.set(Some(ks))
+              doneF
+          }
+      }
     }
   }
 
@@ -389,14 +392,13 @@ class TableServiceGrpcImpl(
         responseObserver.onCompleted()
         logger.debug("Unique column information sent successfully.")
       } catch {
-        case t: DASSdkUnsupportedException => responseObserver.onError(
-            Status.INVALID_ARGUMENT.withDescription("Unsupported operation").withCause(t).asRuntimeException()
-          )
+        case t: DASSdkUnsupportedException =>
+          responseObserver.onError(
+            Status.INVALID_ARGUMENT.withDescription("Unsupported operation").withCause(t).asRuntimeException())
         case t: Throwable =>
           logger.error("Error fetching unique column", t)
           responseObserver.onError(
-            Status.INTERNAL.withDescription("Error fetching unique column").withCause(t).asRuntimeException()
-          )
+            Status.INTERNAL.withDescription("Error fetching unique column").withCause(t).asRuntimeException())
       }
     }
   }
@@ -412,11 +414,11 @@ class TableServiceGrpcImpl(
       responseObserver: StreamObserver[GetBulkInsertTableSizeResponse]): Unit = {
     logger.debug(s"Modifying batch size for Table ID: ${request.getTableId.getName}")
     withTable(request.getDasId, request.getTableId, responseObserver) { table =>
-        val batchSize = table.bulkInsertBatchSize()
-        val response = GetBulkInsertTableSizeResponse.newBuilder().setSize(batchSize).build()
-        responseObserver.onNext(response)
-        responseObserver.onCompleted()
-        logger.debug("Batch size modification completed successfully.")
+      val batchSize = table.bulkInsertBatchSize()
+      val response = GetBulkInsertTableSizeResponse.newBuilder().setSize(batchSize).build()
+      responseObserver.onNext(response)
+      responseObserver.onCompleted()
+      logger.debug("Batch size modification completed successfully.")
     }
   }
 
@@ -438,8 +440,7 @@ class TableServiceGrpcImpl(
         case t: Throwable =>
           logger.error("Error inserting row", t)
           responseObserver.onError(
-            Status.INVALID_ARGUMENT.withDescription("Error inserting row").withCause(t).asRuntimeException()
-          )
+            Status.INVALID_ARGUMENT.withDescription("Error inserting row").withCause(t).asRuntimeException())
       }
     }
   }
@@ -464,8 +465,7 @@ class TableServiceGrpcImpl(
         case t: Throwable =>
           logger.error("Error inserting rows", t)
           responseObserver.onError(
-            Status.INVALID_ARGUMENT.withDescription("Error inserting rows").withCause(t).asRuntimeException()
-          )
+            Status.INVALID_ARGUMENT.withDescription("Error inserting rows").withCause(t).asRuntimeException())
       }
     }
   }
@@ -488,8 +488,7 @@ class TableServiceGrpcImpl(
         case t: Throwable =>
           logger.error("Error updating row", t)
           responseObserver.onError(
-            Status.INVALID_ARGUMENT.withDescription("Error updating row").withCause(t).asRuntimeException()
-          )
+            Status.INVALID_ARGUMENT.withDescription("Error updating row").withCause(t).asRuntimeException())
       }
     }
   }
@@ -512,8 +511,7 @@ class TableServiceGrpcImpl(
         case t: Throwable =>
           logger.error("Error deleting row", t)
           responseObserver.onError(
-            Status.INVALID_ARGUMENT.withDescription("Error deleting row").withCause(t).asRuntimeException()
-          )
+            Status.INVALID_ARGUMENT.withDescription("Error deleting row").withCause(t).asRuntimeException())
       }
     }
   }
@@ -528,8 +526,7 @@ class TableServiceGrpcImpl(
   }
 
   private def withTable(DASId: DASId, table: TableId, responseObserver: StreamObserver[_])(
-      f: DASTable => Unit
-  ): Unit = {
+      f: DASTable => Unit): Unit = {
     withDAS(DASId, responseObserver) { das =>
       val tableName = table.getName
       das.getTable(tableName).toScala match {
@@ -540,8 +537,7 @@ class TableServiceGrpcImpl(
           responseObserver.onError(
             Status.INVALID_ARGUMENT
               .withDescription(s"Table $tableName not found")
-              .asRuntimeException()
-          )
+              .asRuntimeException())
         case Some(table) => f(table)
       }
     }
