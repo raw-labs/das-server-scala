@@ -12,24 +12,25 @@
 
 package com.rawlabs.das.server.grpc
 
-import akka.NotUsed
-import akka.actor.typed.Scheduler
-import akka.stream.scaladsl.{Keep, Sink, Source}
-import akka.stream.{KillSwitches, Materializer, UniqueKillSwitch}
+import scala.concurrent.ExecutionContext
+import scala.concurrent.duration.{DurationInt, FiniteDuration}
+import scala.jdk.CollectionConverters._
+import scala.jdk.OptionConverters._
+import scala.util.{Failure, Success}
+
 import com.rawlabs.das.sdk.{DASExecuteResult, DASSdk, DASSdkUnsupportedException, DASTable}
 import com.rawlabs.das.server.manager.DASSdkManager
 import com.rawlabs.protocol.das.v1.common.DASId
 import com.rawlabs.protocol.das.v1.services._
 import com.rawlabs.protocol.das.v1.tables._
 import com.typesafe.scalalogging.StrictLogging
+
+import akka.NotUsed
+import akka.actor.typed.Scheduler
+import akka.stream.scaladsl.{Keep, Sink, Source}
+import akka.stream.{KillSwitches, Materializer, UniqueKillSwitch}
 import io.grpc.stub.{ServerCallStreamObserver, StreamObserver}
 import io.grpc.{Status, StatusRuntimeException}
-
-import scala.concurrent.ExecutionContext
-import scala.concurrent.duration.{DurationInt, FiniteDuration}
-import scala.jdk.CollectionConverters._
-import scala.jdk.OptionConverters._
-import scala.util.{Failure, Success}
 
 /**
  * Implementation of the gRPC service for handling table-related operations.
@@ -183,13 +184,14 @@ class TableServiceGrpcImpl(provider: DASSdkManager, batchLatency: FiniteDuration
         maybeKs.foreach(_.shutdown())
       })
     }
+    val quals = request.getQuery.getQualsList.asScala.toSeq
+    val columns = request.getQuery.getColumnsList.asScala.toSeq
+    val sortKeys = request.getQuery.getSortKeysList.asScala.toSeq
+    val maybeLimit = if (request.getQuery.hasLimit) Some(request.getQuery.getLimit) else None
+
     // 1) Attempt to get the table from provider
     withTable(request.getDasId, request.getTableId, responseObserver) { table =>
-      def runQuery() = {
-        val quals = request.getQuery.getQualsList.asScala.toSeq
-        val columns = request.getQuery.getColumnsList.asScala.toSeq
-        val sortKeys = request.getQuery.getSortKeysList.asScala.toSeq
-        val maybeLimit = if (request.getQuery.hasLimit) java.lang.Long.valueOf(request.getQuery.getLimit) else null
+      def runQuery(): Source[Rows, NotUsed] = {
         val clientMaxBytes = {
           if (request.hasMaxBatchSizeBytes) {
             // We multiply by 3/4 to leave some room for gRPC overhead
@@ -200,7 +202,7 @@ class TableServiceGrpcImpl(provider: DASSdkManager, batchLatency: FiniteDuration
           }
         }
         val dasExecuteResult: DASExecuteResult =
-          table.execute(quals.asJava, columns.asJava, sortKeys.asJava, maybeLimit)
+          table.execute(quals.asJava, columns.asJava, sortKeys.asJava, maybeLimit.map(java.lang.Long.valueOf).orNull)
 
         val source: Source[Row, NotUsed] = Source.unfoldResource[Row, DASExecuteResult](
           create = () => dasExecuteResult,
@@ -220,14 +222,44 @@ class TableServiceGrpcImpl(provider: DASSdkManager, batchLatency: FiniteDuration
       }
 
       try {
-        val rowBatches = runQuery()
-        val ks = runStreamedResult(rowBatches, request, responseObserver, maybeServerCallObs)
+        val key = QueryCacheKey(
+          planId = request.getPlanId,
+          quals = quals,
+          columns = columns,
+          sortKeys = sortKeys,
+          maybeLimit = maybeLimit)
+        val source: Source[Rows, NotUsed] = QueryResultCache.get(key) match {
+          case Some(CachedResult(batches)) =>
+            logger.debug(s"Using cached result for planID=${request.getPlanId}.")
+            Source(batches): Source[Rows, NotUsed]
+          case None =>
+            logger.debug(s"Cache miss for planID=${request.getPlanId}.")
+            val source = runQuery()
+            // We'll accumulate rows in a buffer as they flow:
+            val buffer = Vector.newBuilder[Rows]
+            val tappingSource: Source[Rows, NotUsed] = source.map { chunk =>
+              buffer += chunk
+              chunk
+            }
+            val withCallBack = tappingSource.watchTermination() { (_, doneF) =>
+              doneF.onComplete {
+                case Success(_) =>
+                  val rows = buffer.result()
+                  QueryResultCache.put(key, CachedResult(rows))
+                  logger.debug(s"Stored ${rows.size} chunk(s) in cache for planID=${request.getPlanId}.")
+                case Failure(ex) =>
+                  logger.warn(s"Failed streaming for planID=${request.getPlanId}, skipping cache. $ex")
+              }(ec)
+            }
+            withCallBack.mapMaterializedValue(_ => NotUsed)
+        }
+        val ks = runStreamedResult(source, request, responseObserver, maybeServerCallObs)
         killSwitchRef.set(Some(ks))
       } catch {
         case t: Throwable =>
-          logger.error("Error explaining query", t)
+          logger.error("Error executing query", t)
           responseObserver.onError(
-            Status.INVALID_ARGUMENT.withDescription("Error explaining query").withCause(t).asRuntimeException())
+            Status.INVALID_ARGUMENT.withDescription("Error executing query").withCause(t).asRuntimeException())
       }
 
     }
