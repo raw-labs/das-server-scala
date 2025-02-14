@@ -10,17 +10,14 @@
  * licenses/APL.txt.
  */
 
-package com.rawlabs.das.server
+package com.rawlabs.das.sdk;
 
-import com.rawlabs.utils.core.RawSettings
-
-object DASServerMain {
-
-  def main(args: Array[String]): Unit = {
-    implicit val settings = new RawSettings()
-    val dasServer = new DASServer
-    dasServer.start(50051)
-    dasServer.blockUntilShutdown()
+public class DASSdkException extends DASException {
+  public DASSdkException(String message, Throwable cause) {
+    super(message, cause);
   }
 
+  public DASSdkException(String message) {
+    super(message);
+  }
 }
