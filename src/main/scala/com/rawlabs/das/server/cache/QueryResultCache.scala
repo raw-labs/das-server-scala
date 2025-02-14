@@ -10,7 +10,7 @@
  * licenses/APL.txt.
  */
 
-package com.rawlabs.das.server.grpc
+package com.rawlabs.das.server.cache
 
 import scala.collection.mutable
 

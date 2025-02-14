@@ -19,6 +19,7 @@ import scala.jdk.OptionConverters._
 import scala.util.{Failure, Success}
 
 import com.rawlabs.das.sdk.{DASExecuteResult, DASSdk, DASSdkUnsupportedException, DASTable}
+import com.rawlabs.das.server.cache.{QueryCacheKey, QueryResultCache}
 import com.rawlabs.das.server.manager.DASSdkManager
 import com.rawlabs.protocol.das.v1.common.DASId
 import com.rawlabs.protocol.das.v1.services._
