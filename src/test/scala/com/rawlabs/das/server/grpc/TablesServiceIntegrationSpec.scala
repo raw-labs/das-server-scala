@@ -16,8 +16,7 @@ import java.io.File
 import java.nio.file.Files
 
 import scala.concurrent.ExecutionContext
-import scala.concurrent.duration.DurationInt
-import scala.util.{Failure, Success, Try}
+import scala.util.Try
 
 import org.scalatest.BeforeAndAfterAll
 import org.scalatest.concurrent.ScalaFutures
@@ -27,15 +26,13 @@ import org.scalatest.wordspec.AnyWordSpec
 import com.rawlabs.das.sdk.DASSettings
 import com.rawlabs.das.server.manager.DASSdkManager
 import com.rawlabs.protocol.das.v1.common.DASId
-import com.rawlabs.protocol.das.v1.query.{Qual, Query}
-// gRPC stubs
+import com.rawlabs.protocol.das.v1.query.Query
 import com.rawlabs.protocol.das.v1.services._
-import com.rawlabs.protocol.das.v1.tables.Row
 import com.rawlabs.protocol.das.v1.tables._
 
-import akka.actor.typed.ActorSystem
-import akka.actor.typed.Scheduler
 import akka.actor.typed.scaladsl.Behaviors
+// gRPC stubs
+import akka.actor.typed.{ActorSystem, Scheduler}
 import akka.stream.Materializer
 import akka.util.Timeout
 import io.grpc.inprocess.{InProcessChannelBuilder, InProcessServerBuilder}
@@ -114,7 +111,9 @@ class TablesServiceIntegrationSpec extends AnyWordSpec with Matchers with Before
       // Depending on your mock, you can assert specific definitions, etc.
     }
 
-    "fail with NOT_FOUND if table does not exist for getTableEstimate" in {
+    "fail with INVALID_ARGUMENT if table does not exist for getTableEstimate" in {
+      // We get INVALID_ARGUMENT if the table does not exist, because that's a user
+      // visible error. NOT_FOUND is used to trigger re-registering a missing DAS.
       val req = GetTableEstimateRequest
         .newBuilder()
         .setDasId(DASId.newBuilder().setId("1"))
@@ -124,7 +123,7 @@ class TablesServiceIntegrationSpec extends AnyWordSpec with Matchers with Before
       val thrown = intercept[StatusRuntimeException] {
         blockingStub.getTableEstimate(req)
       }
-      thrown.getStatus.getCode shouldBe io.grpc.Status.NOT_FOUND.getCode
+      thrown.getStatus.getCode shouldBe io.grpc.Status.INVALID_ARGUMENT.getCode
     }
 
     "executeTable in streaming mode for a known table" in {

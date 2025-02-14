@@ -200,7 +200,7 @@ class TablesServiceDASMockTestSpec extends AnyWordSpec with Matchers with Before
       tableNames should contain("broken")
     }
 
-    // 2) getTableEstimate => unknown => NOT_FOUND
+    // 2) getTableEstimate => unknown => INVALID_ARGUMENT
     "return NOT_FOUND for getTableEstimate of unknown table" in {
       val req = GetTableEstimateRequest
         .newBuilder()
@@ -211,7 +211,7 @@ class TablesServiceDASMockTestSpec extends AnyWordSpec with Matchers with Before
       val ex = intercept[StatusRuntimeException] {
         blockingStub.getTableEstimate(req)
       }
-      ex.getStatus.getCode shouldBe io.grpc.Status.NOT_FOUND.getCode
+      ex.getStatus.getCode shouldBe io.grpc.Status.INVALID_ARGUMENT.getCode
     }
 
     // 3) "small" => 100 rows => read all
