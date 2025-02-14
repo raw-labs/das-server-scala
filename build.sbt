@@ -19,17 +19,6 @@ lazy val commonSettings = Seq(
 
 lazy val buildSettings = Seq(scalaVersion := "2.13.15")
 
-lazy val chronicleFlags = Seq(
-  "--add-exports=java.base/jdk.internal.ref=ALL-UNNAMED",
-  "--add-exports=java.base/sun.nio.ch=ALL-UNNAMED",
-  "--add-exports=jdk.unsupported/sun.misc=ALL-UNNAMED",
-  "--add-exports=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED",
-  "--add-opens=jdk.compiler/com.sun.tools.javac=ALL-UNNAMED",
-  "--add-opens=java.base/java.lang=ALL-UNNAMED",
-  "--add-opens=java.base/java.lang.reflect=ALL-UNNAMED",
-  "--add-opens=java.base/java.io=ALL-UNNAMED",
-  "--add-opens=java.base/java.util=ALL-UNNAMED")
-
 lazy val compileSettings = Seq(
   Compile / doc / sources := Seq.empty,
   Compile / packageDoc / mappings := Seq(),
@@ -40,13 +29,12 @@ lazy val compileSettings = Seq(
   // Ensure Java-based DAS SDK code is compiled first, so it is accessible from Scala.
   compileOrder := CompileOrder.JavaThenScala,
   // Ensure we fork new JVM for run, so we can set JVM flags.
-  Compile / run / fork := true,
-  Compile / run / javaOptions ++= chronicleFlags)
+  Compile / run / fork := true
+)
 
 lazy val testSettings = Seq(
   // Ensure we fork new JVM for run, so we can set JVM flags.
   Test / fork := true,
-  Test / javaOptions ++= chronicleFlags,
   // Required for publishing test artifacts.
   Test / publishArtifact := true)
 
@@ -91,10 +79,6 @@ lazy val root = (project in file("."))
       "com.typesafe.akka" %% "akka-stream" % "2.8.8",
       "com.typesafe.akka" %% "akka-actor-testkit-typed" % "2.8.8",
       "com.typesafe.akka" %% "akka-testkit" % "2.8.8",
-      // Chronicle Queue (iterator cache)
-      "net.openhft" % "chronicle-queue" % "5.27ea0",
-      // SQLite
-      "org.xerial" % "sqlite-jdbc" % "3.47.1.0",
       // Flyway
       "org.flywaydb" % "flyway-core" % "11.1.0",
       // gRPC Testing
