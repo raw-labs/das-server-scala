@@ -222,18 +222,13 @@ class TableServiceGrpcImpl(provider: DASSdkManager, batchLatency: FiniteDuration
       }
 
       try {
-        val key = QueryCacheKey(
-          planId = request.getPlanId,
-          quals = quals,
-          columns = columns,
-          sortKeys = sortKeys,
-          maybeLimit = maybeLimit)
+        val key = QueryCacheKey(request)
         val source: Source[Rows, NotUsed] = QueryResultCache.get(key) match {
           case Some(iterator) =>
-            logger.debug(s"Using cached result for planID=${request.getPlanId}.")
+            logger.debug(s"Using cached result for $request.")
             Source.fromIterator(() => iterator)
           case None =>
-            logger.debug(s"Cache miss for planID=${request.getPlanId}.")
+            logger.debug(s"Cache miss for $request.")
             val source = runQuery()
             val cachedResult = QueryResultCache.newBuffer(key)
             val tappingSource: Source[Rows, NotUsed] = source.map { chunk =>
@@ -245,7 +240,7 @@ class TableServiceGrpcImpl(provider: DASSdkManager, batchLatency: FiniteDuration
                 case Success(_) =>
                   cachedResult.done()
                 case Failure(ex) =>
-                  logger.warn(s"Failed streaming for planID=${request.getPlanId}, skipping cache. $ex")
+                  logger.warn(s"Failed streaming for $request", ex)
               }(ec)
             }
             withCallBack.mapMaterializedValue(_ => NotUsed)
@@ -376,6 +371,9 @@ class TableServiceGrpcImpl(provider: DASSdkManager, batchLatency: FiniteDuration
         responseObserver.onCompleted()
         logger.debug("Row inserted successfully.")
       } catch {
+        case t: DASSdkUnsupportedException =>
+          responseObserver.onError(
+            Status.UNIMPLEMENTED.withDescription("Unsupported operation").withCause(t).asRuntimeException())
         case t: Throwable =>
           logger.error("Error inserting row", t)
           responseObserver.onError(
@@ -401,6 +399,9 @@ class TableServiceGrpcImpl(provider: DASSdkManager, batchLatency: FiniteDuration
         responseObserver.onCompleted()
         logger.debug("Bulk insert completed successfully.")
       } catch {
+        case t: DASSdkUnsupportedException =>
+          responseObserver.onError(
+            Status.UNIMPLEMENTED.withDescription("Unsupported operation").withCause(t).asRuntimeException())
         case t: Throwable =>
           logger.error("Error inserting rows", t)
           responseObserver.onError(
@@ -424,6 +425,9 @@ class TableServiceGrpcImpl(provider: DASSdkManager, batchLatency: FiniteDuration
         responseObserver.onCompleted()
         logger.debug("Rows updated successfully.")
       } catch {
+        case t: DASSdkUnsupportedException =>
+          responseObserver.onError(
+            Status.UNIMPLEMENTED.withDescription("Unsupported operation").withCause(t).asRuntimeException())
         case t: Throwable =>
           logger.error("Error updating row", t)
           responseObserver.onError(
@@ -447,6 +451,9 @@ class TableServiceGrpcImpl(provider: DASSdkManager, batchLatency: FiniteDuration
         responseObserver.onCompleted()
         logger.debug("Rows deleted successfully.")
       } catch {
+        case t: DASSdkUnsupportedException =>
+          responseObserver.onError(
+            Status.UNIMPLEMENTED.withDescription("Unsupported operation").withCause(t).asRuntimeException())
         case t: Throwable =>
           logger.error("Error deleting row", t)
           responseObserver.onError(
@@ -472,7 +479,7 @@ class TableServiceGrpcImpl(provider: DASSdkManager, batchLatency: FiniteDuration
         case None =>
           logger.error(s"Table $tableName not found.")
           // If we're here, the table wasn't found although Postgres thought it was. The DAS was restarted and has now
-          // fewer tables than before. We should return an error to the client.
+          // fewer tables than before. We return an error to the client.
           responseObserver.onError(
             Status.INVALID_ARGUMENT
               .withDescription(s"Table $tableName not found")
