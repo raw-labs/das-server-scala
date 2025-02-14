@@ -189,8 +189,10 @@ class TableServiceGrpcImpl(provider: DASSdkManager, batchLatency: FiniteDuration
     val sortKeys = request.getQuery.getSortKeysList.asScala.toSeq
     val maybeLimit = if (request.getQuery.hasLimit) Some(request.getQuery.getLimit) else None
 
-    // 1) Attempt to get the table from provider
     withTable(request.getDasId, request.getTableId, responseObserver) { table =>
+      /* This function runs the query and returns a Source of Rows. Rows are batches of Row aggregated
+       * by the client's max batch size (clientMaxBytes below), or because the source is slow (server's batchLatency).
+       */
       def runQuery(): Source[Rows, NotUsed] = {
         val clientMaxBytes = {
           if (request.hasMaxBatchSizeBytes) {
@@ -223,29 +225,38 @@ class TableServiceGrpcImpl(provider: DASSdkManager, batchLatency: FiniteDuration
 
       try {
         val key = QueryCacheKey(request)
+        // Check if we have a cached result for this query
         val source: Source[Rows, NotUsed] = QueryResultCache.get(key) match {
           case Some(iterator) =>
+            // We do. Use the iterator to build the Source.
             logger.debug(s"Using cached result for $request.")
             Source.fromIterator(() => iterator)
           case None =>
+            // We don't. Run the query and build a Source that populates a new cache entry.
+            // We tap the source to cache the results as they are streamed to the client.
+            // A callback is added to the source to mark the cache entry as done when the stream completes.
             logger.debug(s"Cache miss for $request.")
             val source = runQuery()
             val cachedResult = QueryResultCache.newBuffer(key)
             val tappingSource: Source[Rows, NotUsed] = source.map { chunk =>
-              cachedResult.addChunk(chunk)
+              cachedResult.addChunk(chunk) // This is NOP if the internal buffer is full.
               chunk
             }
             val withCallBack = tappingSource.watchTermination() { (_, doneF) =>
               doneF.onComplete {
                 case Success(_) =>
-                  cachedResult.done()
+                  // Registers the entry, making it available for future queries. Unless the buffer was full. Then it's a NOP.
+                  cachedResult.register()
                 case Failure(ex) =>
+                  // If the stream fails, we don't cache the result.
                   logger.warn(s"Failed streaming for $request", ex)
               }(ec)
             }
             withCallBack.mapMaterializedValue(_ => NotUsed)
         }
+        // Run the final streaming result: pipe the source through a kill switch and to the gRPC response observer.
         val ks = runStreamedResult(source, request, responseObserver, maybeServerCallObs)
+        // Store the kill switch so that we can cancel the stream if needed.
         killSwitchRef.set(Some(ks))
       } catch {
         case t: Throwable =>
@@ -258,8 +269,15 @@ class TableServiceGrpcImpl(provider: DASSdkManager, batchLatency: FiniteDuration
   }
 
   /**
-   * Runs the final Source[Row, _] in chunks of size `maxChunkSize`, sending them to gRPC. Cancels if gRPC context is
-   * cancelled.
+   * Runs the given Source[Rows, NotUsed] and streams its data to the gRPC client. The stream is connected to a
+   * KillSwitch so that it can be cancelled if needed. When the stream terminates (successfully or with failure), it
+   * completes the gRPC call.
+   *
+   * @param rowBatches the source of row batches to stream to the client
+   * @param request the original executeTable request (used for logging)
+   * @param responseObserver the gRPC observer used to send responses
+   * @param maybeServerCallObs optionally, a ServerCallStreamObserver that supports cancellation notifications
+   * @return a UniqueKillSwitch that can be used to cancel the stream if needed
    */
   private def runStreamedResult(
       rowBatches: Source[Rows, NotUsed],

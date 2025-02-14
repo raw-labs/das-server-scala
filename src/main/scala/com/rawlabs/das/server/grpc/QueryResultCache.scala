@@ -48,8 +48,8 @@ final class ResultBuffer(key: QueryCacheKey, maxSize: Int) {
   /**
    * Called when the stream is finished. If the result did not overflow, register the accumulated chunks in the cache.
    */
-  def done(): Unit = {
-    if (!full) QueryResultCache.register(key, rows.toSeq)
+  def register(): Unit = {
+    if (!full) QueryResultCache.put(key, rows.toSeq)
   }
 
 }
@@ -92,7 +92,7 @@ object QueryResultCache extends StrictLogging {
   /**
    * Registers the result (a sequence of row chunks) in the cache.
    */
-  def register(key: QueryCacheKey, result: Seq[Rows]): Unit = {
+  def put(key: QueryCacheKey, result: Seq[Rows]): Unit = {
     cache.put(key.toString, result)
   }
 
