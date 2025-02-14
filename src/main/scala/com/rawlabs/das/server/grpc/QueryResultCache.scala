@@ -14,6 +14,7 @@ package com.rawlabs.das.server.grpc
 
 import scala.collection.mutable
 
+import com.google.common.cache.{Cache, CacheBuilder, RemovalListener, RemovalNotification}
 import com.rawlabs.protocol.das.v1.query.{Qual, SortKey}
 import com.rawlabs.protocol.das.v1.tables.Rows
 import com.typesafe.scalalogging.StrictLogging
@@ -25,48 +26,55 @@ final case class QueryCacheKey(
     sortKeys: Seq[SortKey],
     maybeLimit: Option[Long])
 
-final class CachedResult(maxSize: Int) {
+final class ResultCache(maxSize: Int) {
 
   private val rows = mutable.Buffer.empty[Rows]
   private var full = false
 
-  def add(chunk: Rows): Unit = {
+  def addChunk(chunk: Rows): Unit = {
     if (!full && this.rows.size < maxSize) {
       this.rows += chunk
     } else {
       this.rows.clear()
       full = true
     }
-    this.rows += chunk
   }
 
-  def overflowed: Boolean = full
-  def content(): Seq[Rows] = rows.toSeq
+  def content(): Option[Seq[Rows]] = {
+    if (!full) {
+      Some(rows.toSeq)
+    } else {
+      None
+    }
+  }
 
 }
 
 object QueryResultCache extends StrictLogging {
-  import java.util.concurrent.ConcurrentHashMap
 
-  private val MAX_CHUNKS = 10
-  private val data = new ConcurrentHashMap[QueryCacheKey, CachedResult]()
+  private val MAX_CACHES = 5
+  private val MAX_CHUNKS_PER_CACHE = 10
+  private val cache: Cache[QueryCacheKey, Seq[Rows]] = CacheBuilder
+    .newBuilder()
+    .maximumSize(MAX_CACHES)
+    .removalListener((notification: RemovalNotification[QueryCacheKey, Seq[Rows]]) => {
+      logger.info(s"Entry for key [${notification.getKey}] removed due to ${notification.getCause}")
+    })
+    .build[QueryCacheKey, Seq[Rows]]()
 
-  def newBuffer(): CachedResult = new CachedResult(MAX_CHUNKS)
+  def newBuffer(): ResultCache = new ResultCache(MAX_CHUNKS_PER_CACHE)
 
-  def get(key: QueryCacheKey): Option[CachedResult] =
-    Option(data.get(key))
-
-  def put(key: QueryCacheKey, result: CachedResult): Unit = {
-    if (result.overflowed) {
-      logger.warn(s"Query cache overflowed for key: $key")
+  def get(key: QueryCacheKey): Option[Iterator[Rows]] = {
+    val result = cache.getIfPresent(key)
+    if (result != null) {
+      Some(result.iterator)
     } else {
-      logger.debug(s"Query cache populated for key: $key")
-      data.put(key, result)
+      None
     }
   }
 
-  def remove(key: QueryCacheKey): Unit = {
-    data.remove(key)
+  def register(key: QueryCacheKey, result: Seq[Rows]): Unit = {
+    cache.put(key, result)
   }
 
 }
