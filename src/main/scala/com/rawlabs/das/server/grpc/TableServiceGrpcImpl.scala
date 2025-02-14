@@ -235,7 +235,7 @@ class TableServiceGrpcImpl(provider: DASSdkManager, batchLatency: FiniteDuration
           case None =>
             logger.debug(s"Cache miss for planID=${request.getPlanId}.")
             val source = runQuery()
-            val cachedResult = QueryResultCache.newBuffer()
+            val cachedResult = QueryResultCache.newBuffer(key)
             val tappingSource: Source[Rows, NotUsed] = source.map { chunk =>
               cachedResult.addChunk(chunk)
               chunk
@@ -243,10 +243,7 @@ class TableServiceGrpcImpl(provider: DASSdkManager, batchLatency: FiniteDuration
             val withCallBack = tappingSource.watchTermination() { (_, doneF) =>
               doneF.onComplete {
                 case Success(_) =>
-                  cachedResult.content().foreach { seq =>
-                    logger.debug(s"Caching result for planID=${request.getPlanId}.")
-                    QueryResultCache.register(key, seq)
-                  }
+                  cachedResult.done()
                 case Failure(ex) =>
                   logger.warn(s"Failed streaming for planID=${request.getPlanId}, skipping cache. $ex")
               }(ec)

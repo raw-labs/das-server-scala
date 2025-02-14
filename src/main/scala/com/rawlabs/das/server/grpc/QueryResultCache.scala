@@ -12,12 +12,12 @@
 
 package com.rawlabs.das.server.grpc
 
-import scala.collection.mutable
-
-import com.google.common.cache.{Cache, CacheBuilder, RemovalListener, RemovalNotification}
+import com.google.common.cache.{Cache, CacheBuilder, RemovalNotification}
 import com.rawlabs.protocol.das.v1.query.{Qual, SortKey}
 import com.rawlabs.protocol.das.v1.tables.Rows
 import com.typesafe.scalalogging.StrictLogging
+
+import scala.collection.mutable
 
 final case class QueryCacheKey(
     planId: String,
@@ -26,7 +26,7 @@ final case class QueryCacheKey(
     sortKeys: Seq[SortKey],
     maybeLimit: Option[Long])
 
-final class ResultCache(maxSize: Int) {
+final class ResultBuffer(key: QueryCacheKey, maxSize: Int) {
 
   private val rows = mutable.Buffer.empty[Rows]
   private var full = false
@@ -40,12 +40,8 @@ final class ResultCache(maxSize: Int) {
     }
   }
 
-  def content(): Option[Seq[Rows]] = {
-    if (!full) {
-      Some(rows.toSeq)
-    } else {
-      None
-    }
+  def done(): Unit = {
+    if (!full) QueryResultCache.register(key, rows.toSeq)
   }
 
 }
@@ -62,7 +58,7 @@ object QueryResultCache extends StrictLogging {
     })
     .build[QueryCacheKey, Seq[Rows]]()
 
-  def newBuffer(): ResultCache = new ResultCache(MAX_CHUNKS_PER_CACHE)
+  def newBuffer(key: QueryCacheKey): ResultBuffer = new ResultBuffer(key, MAX_CHUNKS_PER_CACHE)
 
   def get(key: QueryCacheKey): Option[Iterator[Rows]] = {
     val result = cache.getIfPresent(key)
