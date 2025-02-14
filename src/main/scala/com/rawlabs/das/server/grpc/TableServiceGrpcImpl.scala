@@ -229,24 +229,21 @@ class TableServiceGrpcImpl(provider: DASSdkManager, batchLatency: FiniteDuration
           sortKeys = sortKeys,
           maybeLimit = maybeLimit)
         val source: Source[Rows, NotUsed] = QueryResultCache.get(key) match {
-          case Some(CachedResult(batches)) =>
+          case Some(cachedResult) =>
             logger.debug(s"Using cached result for planID=${request.getPlanId}.")
-            Source(batches): Source[Rows, NotUsed]
+            Source(cachedResult.content()): Source[Rows, NotUsed]
           case None =>
             logger.debug(s"Cache miss for planID=${request.getPlanId}.")
             val source = runQuery()
-            // We'll accumulate rows in a buffer as they flow:
-            val buffer = Vector.newBuilder[Rows]
+            val cachedResult = QueryResultCache.newBuffer()
             val tappingSource: Source[Rows, NotUsed] = source.map { chunk =>
-              buffer += chunk
+              cachedResult.add(chunk)
               chunk
             }
             val withCallBack = tappingSource.watchTermination() { (_, doneF) =>
               doneF.onComplete {
                 case Success(_) =>
-                  val rows = buffer.result()
-                  QueryResultCache.put(key, CachedResult(rows))
-                  logger.debug(s"Stored ${rows.size} chunk(s) in cache for planID=${request.getPlanId}.")
+                  QueryResultCache.put(key, cachedResult)
                 case Failure(ex) =>
                   logger.warn(s"Failed streaming for planID=${request.getPlanId}, skipping cache. $ex")
               }(ec)

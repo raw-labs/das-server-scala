@@ -12,32 +12,61 @@
 
 package com.rawlabs.das.server.grpc
 
+import scala.collection.mutable
+
 import com.rawlabs.protocol.das.v1.query.{Qual, SortKey}
 import com.rawlabs.protocol.das.v1.tables.Rows
+import com.typesafe.scalalogging.StrictLogging
 
 final case class QueryCacheKey(
-                                planId: String,
-                                quals: Seq[Qual],
-                                columns: Seq[String],
-                                sortKeys: Seq[SortKey],
-                                maybeLimit: Option[Long]
-                              )
+    planId: String,
+    quals: Seq[Qual],
+    columns: Seq[String],
+    sortKeys: Seq[SortKey],
+    maybeLimit: Option[Long])
 
-final case class CachedResult(batches: Seq[Rows])
+final class CachedResult(maxSize: Int) {
 
-object QueryResultCache {
+  private val rows = mutable.Buffer.empty[Rows]
+  private var full = false
+
+  def add(chunk: Rows): Unit = {
+    if (!full && this.rows.size < maxSize) {
+      this.rows += chunk
+    } else {
+      this.rows.clear()
+      full = true
+    }
+    this.rows += chunk
+  }
+
+  def overflowed: Boolean = full
+  def content(): Seq[Rows] = rows.toSeq
+
+}
+
+object QueryResultCache extends StrictLogging {
   import java.util.concurrent.ConcurrentHashMap
 
+  private val MAX_CHUNKS = 10
   private val data = new ConcurrentHashMap[QueryCacheKey, CachedResult]()
+
+  def newBuffer(): CachedResult = new CachedResult(MAX_CHUNKS)
 
   def get(key: QueryCacheKey): Option[CachedResult] =
     Option(data.get(key))
 
-  def put(key: QueryCacheKey, value: CachedResult): Unit = {
-    data.put(key, value)
+  def put(key: QueryCacheKey, result: CachedResult): Unit = {
+    if (result.overflowed) {
+      logger.warn(s"Query cache overflowed for key: $key")
+    } else {
+      logger.debug(s"Query cache populated for key: $key")
+      data.put(key, result)
+    }
   }
 
   def remove(key: QueryCacheKey): Unit = {
     data.remove(key)
   }
+
 }
