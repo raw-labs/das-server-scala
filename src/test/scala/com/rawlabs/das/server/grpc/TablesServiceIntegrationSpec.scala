@@ -14,20 +14,24 @@ package com.rawlabs.das.server.grpc
 
 import java.io.File
 import java.nio.file.Files
+
 import scala.concurrent.ExecutionContext
 import scala.util.Try
+
 import org.scalatest.BeforeAndAfterAll
 import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
+
 import com.rawlabs.das.sdk.DASSettings
+import com.rawlabs.das.server.cache.QueryResultCache
 import com.rawlabs.das.server.manager.DASSdkManager
 import com.rawlabs.protocol.das.v1.common.DASId
 import com.rawlabs.protocol.das.v1.query.Query
 import com.rawlabs.protocol.das.v1.services._
 import com.rawlabs.protocol.das.v1.tables._
+
 import akka.actor.typed.scaladsl.Behaviors
-import com.rawlabs.das.server.cache.QueryResultCache
 // gRPC stubs
 import akka.actor.typed.{ActorSystem, Scheduler}
 import akka.stream.Materializer

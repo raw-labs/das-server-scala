@@ -15,26 +15,30 @@ package com.rawlabs.das.server.grpc
 import java.nio.file.Files
 import java.util.UUID
 import java.util.concurrent.{Executors, TimeUnit}
+
 import scala.concurrent.duration._
 import scala.concurrent.{Await, ExecutionContext, Future, Promise}
 import scala.util.{Random, Try}
+
 import org.scalatest.BeforeAndAfterAll
 import org.scalatest.concurrent.{Futures, ScalaFutures}
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.time.{Seconds, Span}
 import org.scalatest.wordspec.AnyWordSpec
+
 import com.rawlabs.das.sdk.DASSettings
+import com.rawlabs.das.server.cache.QueryResultCache
 import com.rawlabs.das.server.manager.DASSdkManager
 import com.rawlabs.protocol.das.v1.common.DASId
 import com.rawlabs.protocol.das.v1.query.{Operator, Qual, Query, SimpleQual}
 import com.rawlabs.protocol.das.v1.services._
 import com.rawlabs.protocol.das.v1.tables._
 import com.rawlabs.protocol.das.v1.types.{Value, ValueInt}
+
 import akka.actor.typed.scaladsl.Behaviors
 import akka.actor.typed.{ActorRef, ActorSystem, Scheduler}
 import akka.stream.{Materializer, SystemMaterializer}
 import akka.util.Timeout
-import com.rawlabs.das.server.cache.QueryResultCache
 import io.grpc.inprocess.{InProcessChannelBuilder, InProcessServerBuilder}
 import io.grpc.stub.{ClientCallStreamObserver, ClientResponseObserver}
 import io.grpc.{ManagedChannel, Server}
