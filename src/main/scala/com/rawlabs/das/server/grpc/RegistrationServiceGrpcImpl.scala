@@ -10,14 +10,16 @@
  * licenses/APL.txt.
  */
 
-package com.rawlabs.das.server
+package com.rawlabs.das.server.grpc
 
-import com.rawlabs.protocol.das.DASId
-import com.rawlabs.protocol.das.services.{RegisterRequest, RegistrationServiceGrpc, UnregisterResponse}
+import scala.jdk.CollectionConverters._
+
+import com.rawlabs.das.server.manager.DASSdkManager
+import com.rawlabs.protocol.das.v1.common.DASId
+import com.rawlabs.protocol.das.v1.services._
 import com.typesafe.scalalogging.StrictLogging
-import io.grpc.stub.StreamObserver
 
-import scala.collection.JavaConverters._
+import io.grpc.stub.StreamObserver
 
 /**
  * gRPC service implementation for registering and unregistering DAS (Data Access Service) instances.
@@ -34,13 +36,12 @@ class RegistrationServiceGrpcImpl(dasSdkManager: DASSdkManager)
    * @param request The request containing the DAS definition.
    * @param responseObserver The observer to send responses.
    */
-  override def register(request: RegisterRequest, responseObserver: StreamObserver[DASId]): Unit = {
+  override def register(request: RegisterRequest, responseObserver: StreamObserver[RegisterResponse]): Unit = {
     logger.debug(s"Registering DAS with type: ${request.getDefinition.getType}")
     val dasId = dasSdkManager.registerDAS(
       request.getDefinition.getType,
       request.getDefinition.getOptionsMap.asScala.toMap,
-      maybeDasId = if (request.hasId) Some(request.getId) else None
-    )
+      maybeDasId = if (request.hasId) Some(request.getId) else None)
     responseObserver.onNext(dasId)
     responseObserver.onCompleted()
     logger.debug(s"DAS registered successfully with ID: $dasId")
@@ -49,7 +50,7 @@ class RegistrationServiceGrpcImpl(dasSdkManager: DASSdkManager)
   /**
    * Unregisters an existing DAS instance based on the provided DAS ID.
    *
-   * @param request The request containing the DAS ID.
+   * @param request The DAS ID.
    * @param responseObserver The observer to send responses.
    */
   override def unregister(request: DASId, responseObserver: StreamObserver[UnregisterResponse]): Unit = {
