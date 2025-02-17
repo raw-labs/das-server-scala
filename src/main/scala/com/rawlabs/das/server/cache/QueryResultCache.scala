@@ -26,7 +26,7 @@ final case class QueryCacheKey(request: ExecuteTableRequest)
  * limit is exceeded, it marks the result as overflowed. When the stream completes, if the result has not overflowed,
  * the accumulated chunks are registered into the cache.
  */
-final class ResultBuffer(key: QueryCacheKey, maxSize: Int) {
+final class ResultBuffer(resultCache: QueryResultCache, key: QueryCacheKey, maxSize: Int) {
 
   private val rows = mutable.Buffer.empty[Rows]
   // A flag indicating that the buffer has overflowed.
@@ -49,24 +49,23 @@ final class ResultBuffer(key: QueryCacheKey, maxSize: Int) {
    * Called when the stream is finished. If the result did not overflow, register the accumulated chunks in the cache.
    */
   def register(): Unit = {
-    if (!full) QueryResultCache.put(key, rows.toSeq)
+    if (!full) resultCache.put(key, rows.toSeq)
   }
 
 }
 
 /**
- * QueryResultCache is a simple cache for query results using Guava Cache. It stores up to MAX_CACHES entries. Each
- * entry is a sequence of Rows (i.e. row chunks). A removal listener logs when an entry is discarded.
+ * QueryResultCache is a cache for query results using Guava Cache. It stores up to maxEntries entries. Each entry is a
+ * sequence of Rows (i.e. row chunks), which size is limited to maxChunksPerEntry chunks. Chunk size isn't determined by
+ * the cache. Row streams are split at the table level, when hitting the client's buffer size or a timeout. A removal
+ * listener logs when an entry is discarded.
  */
-object QueryResultCache extends StrictLogging {
-
-  private val MAX_CACHES = 5
-  private val MAX_CHUNKS_PER_CACHE = 10
+class QueryResultCache(maxEntries: Int, maxChunksPerEntry: Int) extends StrictLogging {
 
   // Create a Guava cache with a maximum size and a removal listener to log evictions.
   private val cache: Cache[String, Seq[Rows]] = CacheBuilder
     .newBuilder()
-    .maximumSize(MAX_CACHES)
+    .maximumSize(maxEntries)
     .removalListener((notification: RemovalNotification[String, Seq[Rows]]) => {
       logger.info(s"Entry for key [${notification.getKey}] removed due to ${notification.getCause}")
     })
@@ -75,7 +74,7 @@ object QueryResultCache extends StrictLogging {
   /**
    * Creates a new ResultBuffer for a given query key. The buffer will accumulate up to MAX_CHUNKS_PER_CACHE chunks.
    */
-  def newBuffer(key: QueryCacheKey): ResultBuffer = new ResultBuffer(key, MAX_CHUNKS_PER_CACHE)
+  def newBuffer(key: QueryCacheKey): ResultBuffer = new ResultBuffer(this, key, maxChunksPerEntry)
 
   /**
    * Retrieves a cached result for the given key, if present. Returns an Iterator over the cached row chunks.

@@ -27,7 +27,6 @@ import com.rawlabs.protocol.das.v1.tables._
 import com.typesafe.scalalogging.StrictLogging
 
 import akka.NotUsed
-import akka.actor.typed.Scheduler
 import akka.stream.scaladsl.{Keep, Sink, Source}
 import akka.stream.{KillSwitches, Materializer, UniqueKillSwitch}
 import io.grpc.stub.{ServerCallStreamObserver, StreamObserver}
@@ -39,10 +38,10 @@ import io.grpc.{Status, StatusRuntimeException}
  * @param provider Provides access to DAS (Data Access Service) instances.
  * @param batchLatency Time delay for batching rows (used in groupingWeightedWithin).
  */
-class TableServiceGrpcImpl(provider: DASSdkManager, batchLatency: FiniteDuration = 500.millis)(implicit
-    val ec: ExecutionContext,
-    materializer: Materializer,
-    scheduler: Scheduler)
+class TableServiceGrpcImpl(
+    provider: DASSdkManager,
+    resultCache: QueryResultCache,
+    batchLatency: FiniteDuration = 500.millis)(implicit val ec: ExecutionContext, materializer: Materializer)
     extends TablesServiceGrpc.TablesServiceImplBase
     with StrictLogging {
 
@@ -227,7 +226,7 @@ class TableServiceGrpcImpl(provider: DASSdkManager, batchLatency: FiniteDuration
       try {
         val key = QueryCacheKey(request)
         // Check if we have a cached result for this query
-        val source: Source[Rows, NotUsed] = QueryResultCache.get(key) match {
+        val source: Source[Rows, NotUsed] = resultCache.get(key) match {
           case Some(iterator) =>
             // We do. Use the iterator to build the Source.
             logger.debug(s"Using cached result for $request.")

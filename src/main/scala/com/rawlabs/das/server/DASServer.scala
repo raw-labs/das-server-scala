@@ -12,12 +12,11 @@
 
 package com.rawlabs.das.server
 
-import java.io.File
-
 import scala.concurrent.ExecutionContext
 import scala.jdk.DurationConverters.JavaDurationOps
 
 import com.rawlabs.das.sdk.DASSettings
+import com.rawlabs.das.server.cache.QueryResultCache
 import com.rawlabs.das.server.grpc.{
   HealthCheckServiceGrpcImpl,
   RegistrationServiceGrpcImpl,
@@ -26,12 +25,10 @@ import com.rawlabs.das.server.grpc.{
 }
 import com.rawlabs.das.server.manager.DASSdkManager
 import com.rawlabs.das.server.webui.{DASWebUIServer, DebugAppService}
-import com.rawlabs.protocol.das.v1.query.Qual
 import com.rawlabs.protocol.das.v1.services.{HealthCheckServiceGrpc, RegistrationServiceGrpc, TablesServiceGrpc}
-import com.rawlabs.protocol.das.v1.tables.Row
 
 import akka.actor.typed.scaladsl.Behaviors
-import akka.actor.typed.{ActorRef, ActorSystem, Scheduler}
+import akka.actor.typed.{ActorSystem, Scheduler}
 import akka.stream.Materializer
 import io.grpc.{Server, ServerBuilder}
 
@@ -50,10 +47,15 @@ class DASServer()(
   private val registrationService = RegistrationServiceGrpc
     .bindService(new RegistrationServiceGrpcImpl(dasSdkManager))
 
+  private val resultCache =
+    new QueryResultCache(
+      maxEntries = settings.getInt("das.cache.max-entries"),
+      maxChunksPerEntry = settings.getInt("das.cache.max-chunks-per-entry"))
+
   private val tablesService = {
     val batchLatency = settings.getDuration("das.server.batch-latency").toScala
     TablesServiceGrpc
-      .bindService(new TableServiceGrpcImpl(dasSdkManager, batchLatency))
+      .bindService(new TableServiceGrpcImpl(dasSdkManager, resultCache, batchLatency))
   }
 //  private val functionsService - FunctionsServiceGrpc.bindService(new FunctionsServiceGrpcImpl(dasSdkManager))
 
