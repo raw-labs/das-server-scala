@@ -237,7 +237,7 @@ class TableServiceGrpcImpl(
             // A callback is added to the source to mark the cache entry as done when the stream completes.
             logger.debug(s"Cache miss for $request.")
             val source = runQuery()
-            val cachedResult = QueryResultCache.newBuffer(key)
+            val cachedResult = resultCache.newBuffer(key)
             val tappingSource: Source[Rows, NotUsed] = source.map { chunk =>
               cachedResult.addChunk(chunk) // This is NOP if the internal buffer is full.
               chunk

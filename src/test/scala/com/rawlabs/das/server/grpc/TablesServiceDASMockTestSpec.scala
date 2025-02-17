@@ -14,17 +14,14 @@ package com.rawlabs.das.server.grpc
 
 import java.io.File
 import java.nio.file.Files
-
 import scala.concurrent._
 import scala.concurrent.duration._
 import scala.jdk.CollectionConverters._
 import scala.util.Try
-
 import org.scalatest.BeforeAndAfterAll
 import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
-
 import com.rawlabs.das.sdk.DASSettings
 import com.rawlabs.das.server.manager.DASSdkManager
 import com.rawlabs.protocol.das.v1.common.DASId
@@ -32,11 +29,11 @@ import com.rawlabs.protocol.das.v1.query._
 import com.rawlabs.protocol.das.v1.services._
 import com.rawlabs.protocol.das.v1.tables._
 import com.rawlabs.protocol.das.v1.types.{Value, ValueInt, ValueString}
-
 import akka.actor.typed.scaladsl.Behaviors
 import akka.actor.typed.{ActorSystem, Scheduler}
 import akka.stream.Materializer
 import akka.util.Timeout
+import com.rawlabs.das.server.cache.QueryResultCache
 import io.grpc.inprocess.{InProcessChannelBuilder, InProcessServerBuilder}
 import io.grpc.{ManagedChannel, Server, StatusRuntimeException}
 
@@ -93,7 +90,8 @@ class TablesServiceDASMockTestSpec extends AnyWordSpec with Matchers with Before
   private val dasSdkManager: DASSdkManager = new DASSdkManager
 
   // 10) TableService
-  private val tableServiceImpl = new TableServiceGrpcImpl(dasSdkManager)
+  private val cache = new QueryResultCache(maxEntries = 10, maxChunksPerEntry = 10)
+  private val tableServiceImpl = new TableServiceGrpcImpl(dasSdkManager, cache)
 
   override def beforeAll(): Unit = {
     super.beforeAll()
