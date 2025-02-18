@@ -24,7 +24,7 @@ import com.rawlabs.protocol.das.v1.types._
 import com.typesafe.scalalogging.StrictLogging
 
 /**
- * A simple example backend for PostgreSQL, analogous to the SqliteBackend example.
+ * A simple example DAS backend for PostgreSQL.
  *
  * @param url The JDBC connection string (e.g., "jdbc:postgresql://localhost:5432/mydb")
  * @param user The database user

@@ -79,8 +79,8 @@ lazy val root = (project in file("."))
       "com.typesafe.akka" %% "akka-stream" % "2.8.8",
       "com.typesafe.akka" %% "akka-actor-testkit-typed" % "2.8.8",
       "com.typesafe.akka" %% "akka-testkit" % "2.8.8",
-      // Flyway
-      "org.flywaydb" % "flyway-core" % "11.1.0",
+      // Jackson databind
+      "com.fasterxml.jackson.core" % "jackson-databind" % "2.18.2" % Test,
       // gRPC Testing
       "io.grpc" % "grpc-inprocess" % "1.62.2",
       // Web UI
