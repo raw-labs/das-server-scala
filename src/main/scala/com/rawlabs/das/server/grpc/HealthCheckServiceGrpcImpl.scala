@@ -10,10 +10,14 @@
  * licenses/APL.txt.
  */
 
-package com.rawlabs.das.server
+package com.rawlabs.das.server.grpc
 
-import com.rawlabs.protocol.das.services.{HealthCheckRequest, HealthCheckResponse, HealthCheckServiceGrpc}
+import com.rawlabs.das.server.BuildInfo
+import com.rawlabs.protocol.das.v1.services.HealthCheckRequest
+import com.rawlabs.protocol.das.v1.services.HealthCheckResponse
+import com.rawlabs.protocol.das.v1.services.HealthCheckServiceGrpc
 import com.typesafe.scalalogging.StrictLogging
+
 import io.grpc.stub.StreamObserver
 
 /**
@@ -33,8 +37,7 @@ class HealthCheckServiceGrpcImpl extends HealthCheckServiceGrpc.HealthCheckServi
         .newBuilder()
         .setStatus(HealthCheckResponse.ServingStatus.SERVING)
         .setDescription(s"Version: ${BuildInfo.version}")
-        .build()
-    )
+        .build())
     responseObserver.onCompleted()
   }
 
