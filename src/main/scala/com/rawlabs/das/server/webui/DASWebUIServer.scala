@@ -28,12 +28,18 @@ object DASWebUIServer {
       ec: ExecutionContext): Unit = {
 
     val route =
-      concat(pathSingleSlash {
-        get {
-          // Synchronous: debugService.renderOverviewPage() => HttpEntity
-          complete(debugService.renderOverviewPage())
-        }
-      })
+      concat(
+        pathSingleSlash {
+          get {
+            // Synchronous: debugService.renderOverviewPage() => HttpEntity
+            complete(debugService.renderOverviewPage())
+          }
+        },
+        path("cache") {
+          get {
+            complete(debugService.renderCacheCatalog()) // GET /cache
+          }
+        })
 
     val bindingF = Http().newServerAt(host, port).bind(route)
 

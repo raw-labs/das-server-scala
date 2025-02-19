@@ -36,7 +36,8 @@ class DASServer()(
     implicit settings: DASSettings,
     implicit val ec: ExecutionContext,
     implicit val materializer: Materializer,
-    implicit val scheduler: Scheduler) {
+    implicit val scheduler: Scheduler,
+    implicit val system: ActorSystem[Nothing]) {
 
   private[this] var server: Server = _
 
@@ -70,6 +71,11 @@ class DASServer()(
       .build()
       .start()
 
+  settings.getIntOpt("das.server.monitoring-port").ifPresent { monitoringPort =>
+    val debugService = new DebugAppService(resultCache)
+    DASWebUIServer.startHttpInterface("0.0.0.0", monitoringPort, debugService)
+  }
+
   def stop(): Unit = if (server != null) server.shutdown()
 
   def blockUntilShutdown(): Unit = if (server != null) server.awaitTermination()
@@ -81,23 +87,15 @@ object DASServer {
   def main(args: Array[String]): Unit = {
     implicit val settings: DASSettings = new DASSettings()
 
-    // 1) Create a typed ActorSystem
     implicit val system: ActorSystem[Nothing] = ActorSystem[Nothing](Behaviors.empty, "das-server")
-
-    val port = settings.getInt("das.server.port")
-    val monitoringPort = settings.getInt("das.server.monitoring-port")
-
     implicit val ec: ExecutionContext = system.executionContext
     implicit val mat: Materializer = Materializer(system)
     implicit val scheduler: Scheduler = system.scheduler
 
     // 4) Start the grpc server
+    val port = settings.getInt("das.server.port")
     val dasServer = new DASServer()
     dasServer.start(port)
-
-    // 5) Start the new server-side HTML UI
-    val debugService = new DebugAppService()
-    DASWebUIServer.startHttpInterface("0.0.0.0", monitoringPort, debugService)
 
     dasServer.blockUntilShutdown()
   }

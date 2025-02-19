@@ -13,6 +13,7 @@
 package com.rawlabs.das.server.cache
 
 import scala.collection.mutable
+import scala.jdk.CollectionConverters.ConcurrentMapHasAsScala
 
 import com.google.common.cache.{Cache, CacheBuilder, RemovalNotification}
 import com.rawlabs.protocol.das.v1.services.ExecuteTableRequest
@@ -93,6 +94,13 @@ class QueryResultCache(maxEntries: Int, maxChunksPerEntry: Int) extends StrictLo
    */
   def put(key: QueryCacheKey, result: Seq[Rows]): Unit = {
     cache.put(key.toString, result)
+  }
+
+  /**
+   * Returns a list of cache keys and their sizes.
+   */
+  def getCacheStats: Seq[(String, Int, Seq[Int])] = {
+    cache.asMap().asScala.map { case (key, value) => (key, value.size, value.map(_.getSerializedSize)) }.toSeq
   }
 
 }
