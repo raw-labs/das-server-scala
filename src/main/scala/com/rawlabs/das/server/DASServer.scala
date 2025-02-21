@@ -15,6 +15,10 @@ package com.rawlabs.das.server
 import scala.concurrent.ExecutionContext
 import scala.jdk.DurationConverters.JavaDurationOps
 
+import org.apache.pekko.actor.typed.scaladsl.Behaviors
+import org.apache.pekko.actor.typed.{ActorSystem, Scheduler}
+import org.apache.pekko.stream.Materializer
+
 import com.rawlabs.das.sdk.DASSettings
 import com.rawlabs.das.server.cache.QueryResultCache
 import com.rawlabs.das.server.grpc.{
@@ -27,9 +31,6 @@ import com.rawlabs.das.server.manager.DASSdkManager
 import com.rawlabs.das.server.webui.{DASWebUIServer, DebugAppService}
 import com.rawlabs.protocol.das.v1.services.{HealthCheckServiceGrpc, RegistrationServiceGrpc, TablesServiceGrpc}
 
-import org.apache.pekko.actor.typed.scaladsl.Behaviors
-import org.apache.pekko.actor.typed.{ActorSystem, Scheduler}
-import org.apache.pekko.stream.Materializer
 import io.grpc.{Server, ServerBuilder}
 
 class DASServer(resultCache: QueryResultCache)(
