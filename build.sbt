@@ -29,8 +29,7 @@ lazy val compileSettings = Seq(
   // Ensure Java-based DAS SDK code is compiled first, so it is accessible from Scala.
   compileOrder := CompileOrder.JavaThenScala,
   // Ensure we fork new JVM for run, so we can set JVM flags.
-  Compile / run / fork := true
-)
+  Compile / run / fork := true)
 
 lazy val testSettings = Seq(
   // Ensure we fork new JVM for run, so we can set JVM flags.
@@ -74,11 +73,9 @@ lazy val root = (project in file("."))
       // Protocol DAS
       "com.raw-labs" %% "protocol-das" % "1.0.0",
       // Akka Streams
-      "com.typesafe.akka" %% "akka-actor-typed" % "2.8.8",
-      "com.typesafe.akka" %% "akka-actor" % "2.8.8",
-      "com.typesafe.akka" %% "akka-stream" % "2.8.8",
-      "com.typesafe.akka" %% "akka-actor-testkit-typed" % "2.8.8",
-      "com.typesafe.akka" %% "akka-testkit" % "2.8.8",
+      "org.apache.pekko" %% "pekko-actor-typed" % "1.1.3",
+      "org.apache.pekko" %% "pekko-stream" % "1.1.3",
+      "org.apache.pekko" %% "pekko-http" % "1.1.0",
       // Jackson databind
       "com.fasterxml.jackson.core" % "jackson-databind" % "2.18.2" % Test,
       // gRPC Testing

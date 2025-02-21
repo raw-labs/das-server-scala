@@ -18,6 +18,11 @@ import java.nio.file.Files
 import scala.concurrent.ExecutionContext
 import scala.util.Try
 
+import org.apache.pekko.actor.typed.scaladsl.Behaviors
+// gRPC stubs
+import org.apache.pekko.actor.typed.{ActorSystem, Scheduler}
+import org.apache.pekko.stream.Materializer
+import org.apache.pekko.util.Timeout
 import org.scalatest.BeforeAndAfterAll
 import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.matchers.should.Matchers
@@ -31,11 +36,6 @@ import com.rawlabs.protocol.das.v1.query.Query
 import com.rawlabs.protocol.das.v1.services._
 import com.rawlabs.protocol.das.v1.tables._
 
-import akka.actor.typed.scaladsl.Behaviors
-// gRPC stubs
-import akka.actor.typed.{ActorSystem, Scheduler}
-import akka.stream.Materializer
-import akka.util.Timeout
 import io.grpc.inprocess.{InProcessChannelBuilder, InProcessServerBuilder}
 import io.grpc.{ManagedChannel, Server, StatusRuntimeException}
 

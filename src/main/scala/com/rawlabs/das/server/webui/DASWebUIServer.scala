@@ -15,10 +15,10 @@ package com.rawlabs.das.server.webui
 import scala.concurrent.ExecutionContext
 import scala.util.{Failure, Success}
 
-import akka.actor.typed.ActorSystem
-import akka.http.scaladsl.Http
-import akka.http.scaladsl.server.Directives._
-import akka.stream.Materializer
+import org.apache.pekko.actor.typed.ActorSystem
+import org.apache.pekko.http.scaladsl.Http
+import org.apache.pekko.http.scaladsl.server.Directives._
+import org.apache.pekko.stream.Materializer
 
 object DASWebUIServer {
 
