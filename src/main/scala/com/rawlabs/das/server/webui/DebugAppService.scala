@@ -12,9 +12,10 @@
 
 package com.rawlabs.das.server.webui
 
+import org.apache.pekko.http.scaladsl.model._
+
 import com.rawlabs.das.server.cache.QueryResultCache
 
-import akka.http.scaladsl.model._
 import scalatags.Text.all._
 import scalatags.Text.tags2.title
 

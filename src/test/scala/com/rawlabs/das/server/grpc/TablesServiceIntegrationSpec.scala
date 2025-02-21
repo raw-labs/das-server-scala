@@ -31,11 +31,11 @@ import com.rawlabs.protocol.das.v1.query.Query
 import com.rawlabs.protocol.das.v1.services._
 import com.rawlabs.protocol.das.v1.tables._
 
-import akka.actor.typed.scaladsl.Behaviors
+import org.apache.pekko.actor.typed.scaladsl.Behaviors
 // gRPC stubs
-import akka.actor.typed.{ActorSystem, Scheduler}
-import akka.stream.Materializer
-import akka.util.Timeout
+import org.apache.pekko.actor.typed.{ActorSystem, Scheduler}
+import org.apache.pekko.stream.Materializer
+import org.apache.pekko.util.Timeout
 import io.grpc.inprocess.{InProcessChannelBuilder, InProcessServerBuilder}
 import io.grpc.{ManagedChannel, Server, StatusRuntimeException}
 

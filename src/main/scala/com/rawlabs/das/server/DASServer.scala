@@ -27,9 +27,9 @@ import com.rawlabs.das.server.manager.DASSdkManager
 import com.rawlabs.das.server.webui.{DASWebUIServer, DebugAppService}
 import com.rawlabs.protocol.das.v1.services.{HealthCheckServiceGrpc, RegistrationServiceGrpc, TablesServiceGrpc}
 
-import akka.actor.typed.scaladsl.Behaviors
-import akka.actor.typed.{ActorSystem, Scheduler}
-import akka.stream.Materializer
+import org.apache.pekko.actor.typed.scaladsl.Behaviors
+import org.apache.pekko.actor.typed.{ActorSystem, Scheduler}
+import org.apache.pekko.stream.Materializer
 import io.grpc.{Server, ServerBuilder}
 
 class DASServer(resultCache: QueryResultCache)(
