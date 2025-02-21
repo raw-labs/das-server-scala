@@ -12,8 +12,6 @@
 
 package com.rawlabs.das.server.webui
 
-import scala.concurrent.ExecutionContext
-
 import com.rawlabs.das.server.cache.QueryResultCache
 
 import akka.http.scaladsl.model._
@@ -23,9 +21,7 @@ import scalatags.Text.tags2.title
 /**
  * A service that uses
  */
-class DebugAppService(queryResultCache: QueryResultCache)(implicit
-    ec: ExecutionContext,
-    scheduler: akka.actor.typed.Scheduler) {
+class DebugAppService(queryResultCache: QueryResultCache) {
 
   // --------------------------------------------------------------------------
   // 2) RENDER “OVERVIEW” PAGE (SYNCHRONOUS EXAMPLE)
