@@ -32,11 +32,12 @@ import akka.actor.typed.{ActorSystem, Scheduler}
 import akka.stream.Materializer
 import io.grpc.{Server, ServerBuilder}
 
-class DASServer()(
+class DASServer(resultCache: QueryResultCache)(
     implicit settings: DASSettings,
     implicit val ec: ExecutionContext,
     implicit val materializer: Materializer,
-    implicit val scheduler: Scheduler) {
+    implicit val scheduler: Scheduler,
+    implicit val system: ActorSystem[Nothing]) {
 
   private[this] var server: Server = _
 
@@ -46,11 +47,6 @@ class DASServer()(
     .bindService(new HealthCheckServiceGrpcImpl)
   private val registrationService = RegistrationServiceGrpc
     .bindService(new RegistrationServiceGrpcImpl(dasSdkManager))
-
-  private val resultCache =
-    new QueryResultCache(
-      maxEntries = settings.getInt("das.cache.max-entries"),
-      maxChunksPerEntry = settings.getInt("das.cache.max-chunks-per-entry"))
 
   private val tablesService = {
     val batchLatency = settings.getDuration("das.server.batch-latency").toScala
@@ -79,26 +75,33 @@ class DASServer()(
 object DASServer {
 
   def main(args: Array[String]): Unit = {
+    // 1) Load settings
     implicit val settings: DASSettings = new DASSettings()
 
-    // 1) Create a typed ActorSystem
+    // 2) Start the actor system
     implicit val system: ActorSystem[Nothing] = ActorSystem[Nothing](Behaviors.empty, "das-server")
-
-    val port = settings.getInt("das.server.port")
-    val monitoringPort = settings.getInt("das.server.monitoring-port")
-
     implicit val ec: ExecutionContext = system.executionContext
     implicit val mat: Materializer = Materializer(system)
     implicit val scheduler: Scheduler = system.scheduler
 
-    // 4) Start the grpc server
-    val dasServer = new DASServer()
+    // 3) Start the results cache
+    val resultCache =
+      new QueryResultCache(
+        maxEntries = settings.getInt("das.cache.max-entries"),
+        maxChunksPerEntry = settings.getInt("das.cache.max-chunks-per-entry"))
+
+    // 4) Start the web monitoring UI
+    settings.getIntOpt("das.server.monitoring-port").ifPresent { monitoringPort =>
+      val debugService = new DebugAppService(resultCache)
+      DASWebUIServer.startHttpInterface("0.0.0.0", monitoringPort, debugService)
+    }
+
+    // 5) Start the grpc server
+    val port = settings.getInt("das.server.port")
+    val dasServer = new DASServer(resultCache)
     dasServer.start(port)
 
-    // 5) Start the new server-side HTML UI
-    val debugService = new DebugAppService()
-    DASWebUIServer.startHttpInterface("0.0.0.0", monitoringPort, debugService)
-
+    // Block until shutdown
     dasServer.blockUntilShutdown()
   }
 
