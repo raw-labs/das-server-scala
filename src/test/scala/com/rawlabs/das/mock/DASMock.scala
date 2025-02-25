@@ -252,6 +252,11 @@ class DASMock(options: Map[String, String]) extends DASSdk with StrictLogging {
                   .build())
               .build())
           .build())
+      .addColumns(ColumnDefinition
+        .newBuilder()
+        .setName("random_record_col")
+        .setType(Type.newBuilder().setRecord(RecordType.newBuilder().build()).build())
+        .build())
       .addColumns(
         ColumnDefinition
           .newBuilder()
