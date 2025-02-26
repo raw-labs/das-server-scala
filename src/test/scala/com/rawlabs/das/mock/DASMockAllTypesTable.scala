@@ -150,6 +150,11 @@ class DASMockAllTypesTable(maxRows: Int) extends DASTable {
                       .newBuilder()
                       .setName("intField")
                       .setValue(Value.newBuilder().setInt(ValueInt.newBuilder().setV(i).build()).build()))
+                  .addAtts(ValueRecordAttr
+                    .newBuilder()
+                    .setName("decimalField")
+                    .setValue(
+                      Value.newBuilder().setDecimal(ValueDecimal.newBuilder().setV(i.toString).build()).build()))
                   .addAtts(
                     ValueRecordAttr
                       .newBuilder()
@@ -179,6 +184,21 @@ class DASMockAllTypesTable(maxRows: Int) extends DASTable {
                           .build()))
                   .build())
             record.build()
+          },
+          "random_record_col" -> {
+            // Generate a random record (with random number of attributes of random names)
+            val record = ValueRecord
+              .newBuilder()
+            (1 to (i % 5)).map { j =>
+              record.addAtts(
+                ValueRecordAttr
+                  .newBuilder()
+                  .setName(s"attr$j")
+                  .setValue(
+                    Value.newBuilder().setString(ValueString.newBuilder().setV(s"random value $j").build()).build())
+                  .build())
+            }
+            Value.newBuilder().setRecord(record.build()).build()
           },
           "str_record_col" -> {
             val record = Value
