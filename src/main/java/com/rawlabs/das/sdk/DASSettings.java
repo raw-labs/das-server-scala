@@ -35,7 +35,7 @@ public class DASSettings {
   private final Config config;
 
   /** Exception representing a settings configuration problem. */
-  public static class SettingsException extends DASException {
+  public static class SettingsException extends RuntimeException {
     public SettingsException(String message, Throwable cause) {
       super(message, cause);
     }

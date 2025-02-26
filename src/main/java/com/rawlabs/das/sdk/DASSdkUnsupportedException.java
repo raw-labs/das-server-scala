@@ -12,7 +12,7 @@
 
 package com.rawlabs.das.sdk;
 
-public class DASSdkUnsupportedException extends DASSdkException {
+public class DASSdkUnsupportedException extends RuntimeException {
   public DASSdkUnsupportedException() {
     super("unsupported operation");
   }

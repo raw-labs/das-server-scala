@@ -13,15 +13,15 @@
 package com.rawlabs.das.sdk;
 
 /**
- * Top-level Exception. Message contains information that WILL BE shared with the end-user, so
- * ensure it does not leak sensitive information.
+ * DASSdkInvalidArgumentException is thrown by DAS SDK methods when an invalid argument error is to
+ * be reported to a user (e.g. string too long during an INSERT, missing mandatory predicate, etc.).
  */
-public class DASException extends RuntimeException {
-  public DASException(String message) {
+public class DASSdkInvalidArgumentException extends RuntimeException {
+  public DASSdkInvalidArgumentException(String message) {
     super(message);
   }
 
-  public DASException(String message, Throwable cause) {
+  public DASSdkInvalidArgumentException(String message, Throwable cause) {
     super(message, cause);
   }
 }

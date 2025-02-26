@@ -16,8 +16,8 @@ import java.time.LocalDate
 
 import scala.collection.mutable
 
-import com.rawlabs.das.sdk.DASExecuteResult
 import com.rawlabs.das.sdk.scala.DASTable
+import com.rawlabs.das.sdk.{DASExecuteResult, DASSdkInvalidArgumentException}
 import com.rawlabs.protocol.das.v1.query.{Operator, Qual, SortKey}
 import com.rawlabs.protocol.das.v1.tables.{Column, Row}
 import com.rawlabs.protocol.das.v1.types.{Value, ValueDate, ValueString}
@@ -124,7 +124,7 @@ class DASMockEventTable extends DASTable with StrictLogging {
 
   private def checkAndMkDate(v: ValueDate) = {
     // Introduce an artificial limitation to only support dates > 2000
-    if (v.getYear <= 2000) throw new IllegalArgumentException(s"Invalid date: $v (only > 2000 supported)")
+    if (v.getYear <= 2000) throw new DASSdkInvalidArgumentException(s"Invalid date: $v (only > 2000 supported)")
     LocalDate.of(v.getYear, v.getMonth, v.getDay)
   }
 
