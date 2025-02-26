@@ -150,6 +150,11 @@ class DASMockAllTypesTable(maxRows: Int) extends DASTable {
                       .newBuilder()
                       .setName("intField")
                       .setValue(Value.newBuilder().setInt(ValueInt.newBuilder().setV(i).build()).build()))
+                  .addAtts(ValueRecordAttr
+                    .newBuilder()
+                    .setName("decimalField")
+                    .setValue(
+                      Value.newBuilder().setDecimal(ValueDecimal.newBuilder().setV(i.toString).build()).build()))
                   .addAtts(
                     ValueRecordAttr
                       .newBuilder()

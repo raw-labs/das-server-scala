@@ -241,6 +241,10 @@ class DASMock(options: Map[String, String]) extends DASSdk with StrictLogging {
                     .build())
                   .addAtts(AttrType
                     .newBuilder()
+                    .setName("decimalField")
+                    .setTipe(Type.newBuilder().setDecimal(DecimalType.newBuilder()).build()))
+                  .addAtts(AttrType
+                    .newBuilder()
                     .setName("binaryField")
                     .setTipe(Type.newBuilder().setBinary(BinaryType.newBuilder()).build())
                     .build())
