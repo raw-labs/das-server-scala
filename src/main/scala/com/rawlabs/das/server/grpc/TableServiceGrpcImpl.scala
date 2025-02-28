@@ -425,10 +425,15 @@ class TableServiceGrpcImpl(
           case ex: DASSdkInvalidArgumentException =>
             logger.error("DASSdk invalid argument error", ex)
             responseObserver.onError(Status.INVALID_ARGUMENT.withDescription(ex.getMessage).asRuntimeException())
+          case ex: DASSdkPermissionDeniedException =>
+            logger.error("DASSdk permission denied error", ex)
+            responseObserver.onError(Status.PERMISSION_DENIED.withDescription(ex.getMessage).asRuntimeException())
+          case ex: DASSdkUnauthenticatedException =>
+            logger.error("DASSdk unauthenticated error", ex)
+            responseObserver.onError(Status.UNAUTHENTICATED.withDescription(ex.getMessage).asRuntimeException())
           case ex: DASSdkUnsupportedException =>
             logger.error("DASSdk unsupported feature", ex)
-            responseObserver.onError(
-              Status.UNIMPLEMENTED.withDescription("Unsupported operation").withCause(ex).asRuntimeException())
+            responseObserver.onError(Status.UNIMPLEMENTED.withDescription(ex.getMessage).asRuntimeException())
           case t: Throwable =>
             logger.error("DASSdk unexpected error", t)
             responseObserver.onError(Status.INTERNAL.withCause(t).asRuntimeException())

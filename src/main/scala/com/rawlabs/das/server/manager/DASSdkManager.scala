@@ -19,12 +19,9 @@ import scala.jdk.CollectionConverters._
 import scala.jdk.OptionConverters._
 import scala.util.control.NonFatal
 
-import com.google.common.cache.CacheBuilder
-import com.google.common.cache.CacheLoader
-import com.google.common.cache.RemovalNotification
-import com.rawlabs.das.sdk.DASSdk
-import com.rawlabs.das.sdk.DASSdkBuilder
-import com.rawlabs.das.sdk.DASSettings
+import com.google.common.cache.{CacheBuilder, CacheLoader, RemovalNotification}
+import com.google.common.util.concurrent.UncheckedExecutionException
+import com.rawlabs.das.sdk._
 import com.rawlabs.protocol.das.v1.common.DASId
 import com.rawlabs.protocol.das.v1.services.RegisterResponse
 import com.typesafe.scalalogging.StrictLogging
@@ -103,13 +100,15 @@ class DASSdkManager(implicit settings: DASSettings) extends StrictLogging {
       dasSdkCache.get(config) // If the config didn't exist, that blocks until the new DAS is loaded
       RegisterResponse.newBuilder().setId(dasId).build()
     } catch {
-      case NonFatal(e) =>
-        logger.error(s"Failed to create DAS for type: $dasType with id: $dasId", e)
+      case e: UncheckedExecutionException =>
+        // `dasSdkCache.get` throws that exception when an unchecked exception occurs while loading
+        // a missing key. Strip the Guava wrapping and rethrow the original exception.
+        logger.error(s"Failed to create DAS for type: $dasType with id: $dasId", e.getCause)
         // Remove the broken config since we failed to build the DAS
         dasSdkConfigCacheLock.synchronized {
           dasSdkConfigCache.remove(dasId)
         }
-        RegisterResponse.newBuilder().setError(e.getMessage).build()
+        throw e.getCause
     }
   }
 
