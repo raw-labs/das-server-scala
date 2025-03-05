@@ -43,4 +43,11 @@ trait DASSdk {
    */
   def getFunction(name: String): Option[DASFunction]
 
+  /**
+   * Close the SDK.
+   *
+   * This method can be used to perform any cleanup logic, such as releasing resources, closing connections, etc.
+   */
+  def close(): Unit = {}
+
 }

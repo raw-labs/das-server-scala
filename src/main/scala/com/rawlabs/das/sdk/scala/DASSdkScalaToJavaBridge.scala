@@ -24,6 +24,8 @@ import com.rawlabs.protocol.das.v1.types.Value
 
 class DASSdkScalaToJavaBridge(scalaSdk: DASSdk) extends com.rawlabs.das.sdk.DASSdk {
 
+  final override def close(): Unit = scalaSdk.close()
+
   final override def getTableDefinitions: util.List[com.rawlabs.protocol.das.v1.tables.TableDefinition] =
     scalaSdk.tableDefinitions.asJava
 

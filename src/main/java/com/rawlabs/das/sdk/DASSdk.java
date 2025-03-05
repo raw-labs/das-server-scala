@@ -40,4 +40,12 @@ public interface DASSdk {
    * @return Optional containing the DASFunction if present
    */
   Optional<DASFunction> getFunction(String name);
+
+  /**
+   * Close the SDK.
+   *
+   * <p>This method can be used to perform any cleanup logic, such as releasing resources, closing
+   * connections, etc.
+   */
+  default void close() {}
 }
