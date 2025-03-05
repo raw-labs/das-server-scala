@@ -19,6 +19,22 @@ import java.util.Optional;
 
 public interface DASSdk {
 
+  /**
+   * Initialize the SDK.
+   *
+   * This method can be used to perform any startup logic, such as
+   * allocating resources, establishing connections, etc.
+   */
+  void init();
+
+  /**
+   * Close the SDK.
+   *
+   * This method can be used to perform any cleanup logic, such as
+   * releasing resources, closing connections, etc.
+   */
+  void close();
+
   /** @return a list of table definitions. */
   List<TableDefinition> getTableDefinitions();
 
