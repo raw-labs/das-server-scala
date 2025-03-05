@@ -48,5 +48,4 @@ public interface DASSdk {
    * connections, etc.
    */
   default void close() {}
-
 }
