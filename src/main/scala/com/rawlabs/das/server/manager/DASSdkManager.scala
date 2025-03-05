@@ -89,8 +89,6 @@ class DASSdkManager(implicit settings: DASSettings) extends StrictLogging {
 
         // Build the SDK instance
         val das = builder.build(dasConfig.options.asJava, settings)
-        // Call init to set up resources
-        das.init()
         logger.debug(s"DAS SDK for type: $dasType initialized.")
         das
       }

@@ -18,20 +18,6 @@ import com.rawlabs.protocol.das.v1.tables.TableDefinition
 trait DASSdk {
 
   /**
-   * Initialize the SDK.
-   *
-   * This method can be used to perform any startup logic, such as allocating resources, establishing connections, etc.
-   */
-  def init(): Unit = {}
-
-  /**
-   * Close the SDK.
-   *
-   * This method can be used to perform any cleanup logic, such as releasing resources, closing connections, etc.
-   */
-  def close(): Unit = {}
-
-  /**
    * @return a list of table definitions.
    */
   def tableDefinitions: Seq[TableDefinition]
@@ -56,5 +42,12 @@ trait DASSdk {
    * @return Optional containing the DASFunction if present
    */
   def getFunction(name: String): Option[DASFunction]
+
+  /**
+   * Close the SDK.
+   *
+   * This method can be used to perform any cleanup logic, such as releasing resources, closing connections, etc.
+   */
+  def close(): Unit = {}
 
 }
