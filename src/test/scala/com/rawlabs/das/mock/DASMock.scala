@@ -9,6 +9,7 @@
 
 package com.rawlabs.das.mock
 
+import com.rawlabs.das.mock.functions.{MultiplyFunction, MultiplyStringFunction, RangeFunction, RecipeFunction, RecordConcatFunction, SingleRecordFunction, UnspecifiedRowsFunction, ZeroParamFunction}
 import com.rawlabs.das.sdk.scala._
 import com.rawlabs.protocol.das.v1.functions._
 import com.rawlabs.protocol.das.v1.tables._
@@ -379,8 +380,19 @@ class DASMock(options: Map[String, String]) extends DASSdk with StrictLogging {
     Seq(bigTable, smallTable, slowTable, brokenTable, inMemoryTable, allTypesTable, eventTable)
   }
 
+  private val functions = Seq(
+    new RecordConcatFunction,
+    new MultiplyFunction,
+    new ZeroParamFunction,
+    new RecipeFunction,
+    new MultiplyStringFunction,
+    new UnspecifiedRowsFunction,
+    new RangeFunction,
+    new SingleRecordFunction
+  ).map(f => f.definition.getFunctionId.getName -> f).toMap
+
   override def functionDefinitions: Seq[FunctionDefinition] = {
-    Seq.empty
+    functions.values.map(_.definition).toSeq
   }
 
   private val tables = Map(
@@ -394,8 +406,6 @@ class DASMock(options: Map[String, String]) extends DASSdk with StrictLogging {
 
   override def getTable(name: String): Option[DASTable] = tables.get(name)
 
-  override def getFunction(name: String): Option[DASFunction] = {
-    None
-  }
+  override def getFunction(name: String): Option[DASFunction] = functions.get(name)
 
 }
