@@ -12,13 +12,14 @@
 
 package com.rawlabs.das.util
 
+import scala.jdk.CollectionConverters._
+
 import com.rawlabs.protocol.das.v1.common.{DASDefinition, DASId}
 import com.rawlabs.protocol.das.v1.functions.FunctionDefinition
 import com.rawlabs.protocol.das.v1.services._
 import com.rawlabs.protocol.das.v1.types.{AttrType, Type, Value}
-import io.grpc.{ManagedChannel, ManagedChannelBuilder}
 
-import scala.jdk.CollectionConverters._
+import io.grpc.{ManagedChannel, ManagedChannelBuilder}
 
 object DumpRegisterStatements extends App {
 

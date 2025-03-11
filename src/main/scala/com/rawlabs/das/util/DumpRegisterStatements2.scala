@@ -12,14 +12,13 @@
 
 package com.rawlabs.das.util
 
+import scala.jdk.CollectionConverters._
+
 import com.rawlabs.das.server.FunctionImport
 import com.rawlabs.protocol.das.v1.common.{DASDefinition, DASId}
-import com.rawlabs.protocol.das.v1.functions.FunctionDefinition
 import com.rawlabs.protocol.das.v1.services._
-import com.rawlabs.protocol.das.v1.types.{AttrType, Type, Value}
-import io.grpc.{ManagedChannel, ManagedChannelBuilder}
 
-import scala.jdk.CollectionConverters._
+import io.grpc.{ManagedChannel, ManagedChannelBuilder}
 
 object DumpRegisterStatements2 extends App {
 
@@ -86,13 +85,20 @@ object DumpRegisterStatements2 extends App {
   val functionImport = new FunctionImport()
   val statements = for (funcDef <- getFuncResp.getDefinitionsList.asScala) yield {
     val funcName = funcDef.getFunctionId.getName
-    funcName -> functionImport.innerStatements("test", funcDef)
+    val stmts =
+      for (
+        inner <- functionImport.innerStatements("test", funcDef);
+        outer <- functionImport.outerStatements("test", fullOptions + ("das_function_name" -> funcName), funcDef)
+      ) yield {
+        inner ++ outer
+      }
+    funcName -> stmts
   }
 
   statements.foreach { case (funcName, statements) =>
     println(s"-- Function: $funcName")
     statements match {
-      case Left(err) => throw new IllegalArgumentException(err)
+      case Left(err)   => throw new IllegalArgumentException(err)
       case Right(list) => list.foreach(println)
     }
   }

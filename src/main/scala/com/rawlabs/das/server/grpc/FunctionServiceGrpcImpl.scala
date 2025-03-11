@@ -12,18 +12,23 @@
 
 package com.rawlabs.das.server.grpc
 
-import com.rawlabs.das.sdk.{DASSdkInvalidArgumentException, DASSdkPermissionDeniedException, DASSdkUnauthenticatedException, DASSdkUnsupportedException}
 import com.rawlabs.das.sdk._
+import com.rawlabs.das.sdk.{
+  DASSdkInvalidArgumentException,
+  DASSdkPermissionDeniedException,
+  DASSdkUnauthenticatedException,
+  DASSdkUnsupportedException
+}
 import com.rawlabs.das.server.manager.DASSdkManager
 import com.rawlabs.protocol.das.v1.common.{DASId, Environment}
 import com.rawlabs.protocol.das.v1.functions.FunctionId
 import com.rawlabs.protocol.das.v1.services._
 import com.typesafe.scalalogging.StrictLogging
-import io.grpc.Status
-import io.grpc.stub.StreamObserver
 
 import _root_.scala.jdk.CollectionConverters._
 import _root_.scala.jdk.OptionConverters._
+import io.grpc.Status
+import io.grpc.stub.StreamObserver
 
 /**
  * Implementation of the gRPC service for handling function-related operations.
@@ -83,7 +88,9 @@ class FunctionServiceGrpcImpl(provider: DASSdkManager)
           .map { arg =>
             assert(arg.hasNamedArg)
             arg.getNamedArg.getName -> arg.getNamedArg.getValue
-          }.toMap.asJava
+          }
+          .toMap
+          .asJava
         // Execute the function. Suppose your function object has an `execute(args, envOpt)` method returning a Value
         val resultValue = function.execute(sdkArgs)
 

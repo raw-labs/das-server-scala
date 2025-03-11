@@ -9,7 +9,16 @@
 
 package com.rawlabs.das.mock
 
-import com.rawlabs.das.mock.functions.{MultiplyFunction, MultiplyStringFunction, RangeFunction, RecipeFunction, RecordConcatFunction, SingleRecordFunction, UnspecifiedRowsFunction, ZeroParamFunction}
+import com.rawlabs.das.mock.functions.{
+  MultiplyFunction,
+  MultiplyStringFunction,
+  RangeFunction,
+  RecipeFunction,
+  RecordConcatFunction,
+  SingleRecordFunction,
+  UnspecifiedRowsFunction,
+  ZeroParamFunction
+}
 import com.rawlabs.das.sdk.scala._
 import com.rawlabs.protocol.das.v1.functions._
 import com.rawlabs.protocol.das.v1.tables._
@@ -388,8 +397,7 @@ class DASMock(options: Map[String, String]) extends DASSdk with StrictLogging {
     new MultiplyStringFunction,
     new UnspecifiedRowsFunction,
     new RangeFunction,
-    new SingleRecordFunction
-  ).map(f => f.definition.getFunctionId.getName -> f).toMap
+    new SingleRecordFunction).map(f => f.definition.getFunctionId.getName -> f).toMap
 
   override def functionDefinitions: Seq[FunctionDefinition] = {
     functions.values.map(_.definition).toSeq

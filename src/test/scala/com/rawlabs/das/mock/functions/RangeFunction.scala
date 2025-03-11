@@ -42,7 +42,9 @@ class RangeFunction extends DASMockFunction {
           .setDescription("an integer")
           .setType(Type.newBuilder().setInt(IntType.newBuilder().setNullable(false).build())))
       .setDescription("A function that returns numbers from 0 to n")
-      .setReturnType(Type.newBuilder().setList(ListType.newBuilder().setInnerType(Type.newBuilder().setInt(IntType.newBuilder())).build()))
+      .setReturnType(Type
+        .newBuilder()
+        .setList(ListType.newBuilder().setInnerType(Type.newBuilder().setInt(IntType.newBuilder())).build()))
       .build()
   }
 }

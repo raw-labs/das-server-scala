@@ -57,7 +57,11 @@ class SingleRecordFunction extends DASMockFunction {
   def execute(args: Map[String, Value]): Value = {
     val name = args("name").getString.getV
     val recordBuilder = ValueRecord.newBuilder()
-    recordBuilder.addAtts(ValueRecordAttr.newBuilder().setName("name").setValue(Value.newBuilder().setString(ValueString.newBuilder().setV(name).build())))
+    recordBuilder.addAtts(
+      ValueRecordAttr
+        .newBuilder()
+        .setName("name")
+        .setValue(Value.newBuilder().setString(ValueString.newBuilder().setV(name).build())))
     val countryAttBuilder = ValueRecordAttr.newBuilder().setName("country")
     val populationAttBuilder = ValueRecordAttr.newBuilder().setName("population")
     cities.get(name).foreach { case (country, population) =>
@@ -69,11 +73,25 @@ class SingleRecordFunction extends DASMockFunction {
   }
 
   def definition: FunctionDefinition = {
-    val rowType = Type.newBuilder().setRecord(RecordType.newBuilder()
-        .addAtts(AttrType.newBuilder().setName("name").setTipe(Type.newBuilder().setString(StringType.newBuilder().setNullable(false).build())))
-        .addAtts(AttrType.newBuilder().setName("country").setTipe(Type.newBuilder().setString(StringType.newBuilder().setNullable(true).build())))
-        .addAtts(AttrType.newBuilder().setName("population").setTipe(Type.newBuilder().setInt(IntType.newBuilder().setNullable(true).build())))
-        .build())
+    val rowType = Type
+      .newBuilder()
+      .setRecord(
+        RecordType
+          .newBuilder()
+          .addAtts(
+            AttrType
+              .newBuilder()
+              .setName("name")
+              .setTipe(Type.newBuilder().setString(StringType.newBuilder().setNullable(false).build())))
+          .addAtts(AttrType
+            .newBuilder()
+            .setName("country")
+            .setTipe(Type.newBuilder().setString(StringType.newBuilder().setNullable(true).build())))
+          .addAtts(AttrType
+            .newBuilder()
+            .setName("population")
+            .setTipe(Type.newBuilder().setInt(IntType.newBuilder().setNullable(true).build())))
+          .build())
     FunctionDefinition
       .newBuilder()
       .setFunctionId(FunctionId.newBuilder().setName("city_stat").build())
