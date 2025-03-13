@@ -12,11 +12,11 @@
 
 package com.rawlabs.das.server
 
-import scala.jdk.CollectionConverters.CollectionHasAsScala
-
 import com.rawlabs.protocol.das.v1.functions.{FunctionDefinition, ParameterDefinition}
 import com.rawlabs.protocol.das.v1.types.{AttrType, Type, Value}
 import com.typesafe.scalalogging.StrictLogging
+
+import scala.jdk.CollectionConverters.CollectionHasAsScala
 
 class FunctionImport extends StrictLogging {
 
@@ -65,7 +65,7 @@ class FunctionImport extends StrictLogging {
         }
       }
 
-      val argList = paramList.mkString(", ")
+      val argList = paramList.mkString(",\n    ")
 
       Seq(s"""CREATE OR REPLACE FUNCTION $qSchema.$qFunctionName(
                |  $argList
@@ -89,7 +89,7 @@ class FunctionImport extends StrictLogging {
       val row = qFunctionName
       val innerCall = {
         // 8) Build a comma-separated list of argument references for the SQL body.
-        val passUserArgs = if (argNamesList.isEmpty) "" else argNamesList.map(quoteIdentifier).mkString(", ")
+        val passUserArgs = if (argNamesList.isEmpty) "" else argNamesList.map(quoteIdentifier).mkString(",\n    ")
         s"""$qSchema.$qInnerFunctionName(
            |      $optionsArrayLiteral,
            |      $argNamesArray${if (passUserArgs.nonEmpty) s", $passUserArgs" else ""}
@@ -106,7 +106,7 @@ class FunctionImport extends StrictLogging {
           // output as a TABLE of records.
           // Extract all fields from the inner jsonb
           attributesToJsonbExtraction(innerType.getRecord.getAttsList.asScala, row).map { extractions =>
-            s"SELECT ${extractions.mkString(",")} FROM $call"
+            s"SELECT ${extractions.mkString(",\n    ")} FROM $call"
           }
         } else {
           // It's a list of something else. Expose the whole function output as a TABLE of one column.
@@ -117,7 +117,7 @@ class FunctionImport extends StrictLogging {
         // as a TABLE of records (one record).
         // Extract all fields from the inner jsonb
         attributesToJsonbExtraction(definition.getReturnType.getRecord.getAttsList.asScala, row).map { extractions =>
-          s"SELECT ${extractions.mkString(",")} FROM $innerCall AS $row"
+          s"SELECT ${extractions.mkString(",\n    ")} FROM $innerCall AS $row"
         }
       } else {
         // It's a scalar. Expose the whole function output as is.
@@ -152,7 +152,8 @@ class FunctionImport extends StrictLogging {
         val qParamName = quoteIdentifier(param.getName)
         val qParamType = plainType
         if (param.hasDefaultValue) {
-          mkPgValue(param.getDefaultValue).map(default => Parameter(qParamName, qParamType, Some(default)))
+          dasValueToPostgresConst(param.getDefaultValue, param.getType).map(default =>
+            Parameter(qParamName, qParamType, Some(default)))
         } else {
           Right(Parameter(qParamName, qParamType, None))
         }
@@ -192,7 +193,7 @@ class FunctionImport extends StrictLogging {
           s"TABLE($itemName $itemType)"
         }
       }
-    } else Left("unknown")
+    } else Left("outerFunctionReturnType: unsupported type " + tipe)
   }
 
   private def attributesToColumnTypes(attrTypes: Iterable[AttrType]): Either[String, Iterable[String]] = {
@@ -213,89 +214,368 @@ class FunctionImport extends StrictLogging {
   private def attributesToJsonbExtraction(
       attrTypes: Iterable[AttrType],
       rowName: String): Either[String, Iterable[String]] = {
-    val extractions = attrTypes.map { attrType =>
+    val extractions: Iterable[Either[String, String]] = attrTypes.map { attrType =>
       val fieldName = attrType.getName
       val fieldType = attrType.getTipe
-
       val jsonb = s"($rowName->'$fieldName')"
+      val jsonbText = s"($rowName->>'$fieldName')"
       if (fieldType.hasString) {
-        // Extract a string field from the jsonb as TEXT
-        Right(s"($rowName->>'$fieldName')")
+        // Extract a string field from the jsonb as TEXT.
+        Right(jsonbText)
+      } else if (fieldType.hasByte || fieldType.hasShort) {
+        // Cast byte and short fields as smallint.
+        Right(s"$jsonb::smallint")
       } else if (fieldType.hasInt) {
-        // Cast an integer field from the jsonb to INTEGER
+        // Cast integer field.
         Right(s"$jsonb::integer")
+      } else if (fieldType.hasLong) {
+        // Cast long field.
+        Right(s"$jsonb::bigint")
+      } else if (fieldType.hasFloat) {
+        // Cast float field.
+        Right(s"$jsonb::real")
+      } else if (fieldType.hasDouble) {
+        // Cast double field.
+        Right(s"$jsonb::double precision")
+      } else if (fieldType.hasDecimal) {
+        Right(s"$jsonbText::numeric")
+      } else if (fieldType.hasBool) {
+        // Cast boolean field.
+        Right(s"$jsonb::boolean")
+      } else if (fieldType.hasBinary) {
+        // Cast binary field as bytea.
+        Right(s"$jsonbText::bytea")
+      } else if (fieldType.hasDate) {
+        Right(s"$jsonbText::date")
+      } else if (fieldType.hasTime) {
+        Right(s"$jsonbText::time")
+      } else if (fieldType.hasTimestamp) {
+        Right(s"$jsonbText::timestamp")
+      } else if (fieldType.hasInterval) {
+        Right(s"$jsonbText::interval")
       } else if (fieldType.hasRecord) {
-        // Leave the field as is.
+        // For records, we leave the JSONB expression as is.
         Right(jsonb)
       } else if (fieldType.hasList) {
-        // We expect a list. We'll `unnest` the underlying array and cast each item to the inner type.
-        // We don't recurse, everything complex becomes a jsonb.
+        // For lists, unnest the JSONB array and cast each element to the inner type.
         val innerType = fieldType.getList.getInnerType
-        dasTypeToPostgres(innerType).map { innerPgType =>
-          val items = s"jsonb_array_elements_text($jsonb)"
-          s"SELECT i::$innerPgType FROM $items i"
+        if (innerType.hasRecord || innerType.hasList || innerType.hasAny) {
+          // We extract the inner JSONB and leave them untouched
+          Right(s"(SELECT array_agg(i) FROM jsonb_array_elements($jsonb) i)")
+        } else {
+          dasTypeToPostgres(innerType).map { innerPgType =>
+            // Extract elements as STRING and CAST them to the inner type.
+            val items = s"jsonb_array_elements_text($jsonb)"
+            s"(SELECT array_agg(i::$innerPgType) FROM $items i)"
+          }
         }
+      } else if (fieldType.hasAny) {
+        Right(jsonb)
       } else {
-        Left("unsupported type " + fieldType)
+        Left(s"jsonExtraction: unsupported type $fieldType")
       }
     }
-    val errors = extractions.collect { case Left(error) => error }
+    // Collect errors if any.
+    val errors = extractions.collect { case Left(err) => err }
     if (errors.nonEmpty) {
-      val errorMessage = errors.mkString(", ")
-      Left(errorMessage)
+      Left(errors.mkString(", "))
     } else {
-      Right(extractions.collect { case Right(extraction) => extraction })
+      Right(extractions.collect { case Right(expr) => expr })
     }
   }
 
-  /*
-  def outerStatements(dasId: DASId, schema: String, definition: FunctionDefinition): (String, Seq[String]) = {
-    // The body depends on the return type of the function.
-
-    if (returnType.hasList) {
-      // The inner/system function returns an array of ... something.
-      // We'll `unnest` that array to turn the array into a set of items (a TABLE).
+  private def dasValueToPostgresConst(value: Value, t: Type): Either[String, String] = {
+    t.getTypeCase match {
+      case Type.TypeCase.BYTE =>
+        if (value.hasByte) Right(value.getByte.getV.toString)
+        else Left(s"Expected byte value but got $value")
+      case Type.TypeCase.SHORT =>
+        if (value.hasShort) Right(value.getShort.getV.toString)
+        else Left(s"Expected short value but got $value")
+      case Type.TypeCase.INT =>
+        if (value.hasInt) Right(value.getInt.getV.toString)
+        else Left(s"Expected int value but got $value")
+      case Type.TypeCase.LONG =>
+        if (value.hasLong) Right(value.getLong.getV.toString)
+        else Left(s"Expected long value but got $value")
+      case Type.TypeCase.FLOAT =>
+        if (value.hasFloat) Right(value.getFloat.getV.toString)
+        else Left(s"Expected float value but got $value")
+      case Type.TypeCase.DOUBLE =>
+        if (value.hasDouble) Right(value.getDouble.getV.toString)
+        else Left(s"Expected double value but got $value")
+      case Type.TypeCase.DECIMAL =>
+        if (value.hasDecimal) Right(value.getDecimal.getV)
+        else Left(s"Expected decimal value but got $value")
+      case Type.TypeCase.BOOL =>
+        if (value.hasBool) Right(if (value.getBool.getV) "true" else "false")
+        else Left(s"Expected bool value but got $value")
+      case Type.TypeCase.STRING =>
+        if (value.hasString) {
+          val s = value.getString.getV
+          Right(s"'${s.replace("'", "''")}'")
+        } else Left(s"Expected string value but got $value")
+      case Type.TypeCase.BINARY =>
+        if (value.hasBinary) {
+          val bytes = value.getBinary.getV.toByteArray
+          val hex = bytes.map("%02x".format(_)).mkString
+          Right(s"E'\\\\x$hex'::bytea")
+        } else Left(s"Expected binary value but got $value")
+      case Type.TypeCase.DATE =>
+        if (value.hasDate) {
+          val d = value.getDate
+          // Format as YYYY-MM-DD
+          Right(f"'${d.getYear}%04d-${d.getMonth}%02d-${d.getDay}%02d'::date")
+        } else Left(s"Expected date value but got $value")
+      case Type.TypeCase.TIME =>
+        if (value.hasTime) {
+          val tVal = value.getTime
+          Right(f"'${tVal.getHour}%02d:${tVal.getMinute}%02d:${tVal.getSecond}%02d'::time")
+        } else Left(s"Expected time value but got $value")
+      case Type.TypeCase.TIMESTAMP =>
+        if (value.hasTimestamp) {
+          val ts = value.getTimestamp
+          Right(
+            f"'${ts.getYear}%04d-${ts.getMonth}%02d-${ts.getDay}%02d ${ts.getHour}%02d:${ts.getMinute}%02d:${ts.getSecond}%02d'::timestamp")
+        } else Left(s"Expected timestamp value but got $value")
+      case Type.TypeCase.INTERVAL =>
+        if (value.hasInterval) {
+          val iv = value.getInterval
+          Right(
+            s"'P${iv.getYears}Y${iv.getMonths}M${iv.getDays}DT${iv.getHours}H${iv.getMinutes}M${iv.getSeconds}S'::interval")
+        } else Left(s"Expected interval value but got $value")
+      case Type.TypeCase.RECORD =>
+        if (value.hasRecord) {
+          val jsonStr = valueToJson(value)
+          Right(s"'${escapeJsonb(jsonStr)}'::jsonb")
+        } else Left(s"Expected record value but got $value")
+      case Type.TypeCase.LIST =>
+        if (value.hasList) {
+          val lst = value.getList
+          val innerType = t.getList.getInnerType
+          val elems = lst.getValuesList.asScala.map { elem =>
+            dasArrayValueToPostgresConst(elem, innerType)
+          }
+          val errors = elems.collect { case Left(err) => err }
+          if (errors.nonEmpty) {
+            Left(errors.mkString(", "))
+          } else {
+            val values = elems.collect { case Right(v) => v }
+            Right("ARRAY[" + values.mkString(", ") + "]")
+          }
+        } else Left(s"Expected list value but got $value")
+      case Type.TypeCase.ANY =>
+        // Fallback to JSONB
+        val jsonStr = valueToJson(value)
+        Right(s"jsonb '${escapeJsonb(jsonStr)}'")
+      case _ =>
+        Left(s"Unsupported type: $t")
     }
-
-    // 9) Build the friendly function CREATE statement.
-    val createFriendly =
-      s"""CREATE OR REPLACE FUNCTION $qSchema.$qFunctionName(
-         |  $friendlyArgList
-         |)
-         |RETURNS $returnType
-         |LANGUAGE sql
-         |AS $$$$
-         |  $body;
-         |$$$$;""".stripMargin
-
-
-
   }
+
+  private def dasArrayValueToPostgresConst(value: Value, t: Type): Either[String, String] = {
+    t.getTypeCase match {
+      case Type.TypeCase.BYTE =>
+        if (value.hasByte) Right(value.getByte.getV.toString)
+        else Left(s"Expected byte value but got $value")
+      case Type.TypeCase.SHORT =>
+        if (value.hasShort) Right(value.getShort.getV.toString)
+        else Left(s"Expected short value but got $value")
+      case Type.TypeCase.INT =>
+        if (value.hasInt) Right(value.getInt.getV.toString)
+        else Left(s"Expected int value but got $value")
+      case Type.TypeCase.LONG =>
+        if (value.hasLong) Right(value.getLong.getV.toString)
+        else Left(s"Expected long value but got $value")
+      case Type.TypeCase.FLOAT =>
+        if (value.hasFloat) Right(value.getFloat.getV.toString)
+        else Left(s"Expected float value but got $value")
+      case Type.TypeCase.DOUBLE =>
+        if (value.hasDouble) Right(value.getDouble.getV.toString)
+        else Left(s"Expected double value but got $value")
+      case Type.TypeCase.DECIMAL =>
+        if (value.hasDecimal) Right(value.getDecimal.getV)
+        else Left(s"Expected decimal value but got $value")
+      case Type.TypeCase.BOOL =>
+        if (value.hasBool) Right(if (value.getBool.getV) "true" else "false")
+        else Left(s"Expected bool value but got $value")
+      case Type.TypeCase.STRING =>
+        if (value.hasString) {
+          val s = value.getString.getV
+          Right(s"'${s.replace("'", "''")}'")
+        } else Left(s"Expected string value but got $value")
+      case Type.TypeCase.BINARY =>
+        if (value.hasBinary) {
+          val bytes = value.getBinary.getV.toByteArray
+          val hex = bytes.map("%02x".format(_)).mkString
+          Right(s"E'\\\\x$hex'::bytea")
+        } else Left(s"Expected binary value but got $value")
+      case Type.TypeCase.DATE =>
+        if (value.hasDate) {
+          val d = value.getDate
+          // Format as YYYY-MM-DD
+          Right(f"'${d.getYear}%04d-${d.getMonth}%02d-${d.getDay}%02d'::date")
+        } else Left(s"Expected date value but got $value")
+      case Type.TypeCase.TIME =>
+        if (value.hasTime) {
+          val tVal = value.getTime
+          Right(f"'${tVal.getHour}%02d:${tVal.getMinute}%02d:${tVal.getSecond}%02d'::time")
+        } else Left(s"Expected time value but got $value")
+      case Type.TypeCase.TIMESTAMP =>
+        if (value.hasTimestamp) {
+          val ts = value.getTimestamp
+          Right(
+            f"'${ts.getYear}%04d-${ts.getMonth}%02d-${ts.getDay}%02d ${ts.getHour}%02d:${ts.getMinute}%02d:${ts.getSecond}%02d'::timestamp")
+        } else Left(s"Expected timestamp value but got $value")
+      case Type.TypeCase.INTERVAL =>
+        if (value.hasInterval) {
+          val iv = value.getInterval
+          Right(
+            s"'P${iv.getYears}Y${iv.getMonths}M${iv.getDays}DT${iv.getHours}H${iv.getMinutes}M${iv.getSeconds}S'::interval")
+        } else Left(s"Expected interval value but got $value")
+      case Type.TypeCase.RECORD =>
+        if (value.hasRecord) {
+          val jsonStr = valueToJson(value)
+          Right(s"'${escapeJsonb(jsonStr)}'::jsonb")
+        } else Left(s"Expected record value but got $value")
+      case Type.TypeCase.ANY =>
+        val jsonStr = valueToJson(value)
+        Right(s"'${escapeJsonb(jsonStr)}'::jsonb")
+      case _ =>
+        // Fallback to JSONB
+        val jsonStr = valueToJson(value)
+        Right(s"'${escapeJsonb(jsonStr)}'::jsonb")
+    }
+  }
+
+  // A helper function to escape a string for JSON.
+  private def escapeJson(s: String): String = {
+    s.flatMap {
+      case '"'  => "\\\""
+      case '\\' => "\\\\"
+      case '\b' => "\\b"
+      case '\f' => "\\f"
+      case '\n' => "\\n"
+      case '\r' => "\\r"
+      case '\t' => "\\t"
+      case c    => c.toString
+    }
+  }
+
+  /**
+   * Converts a DAS Value (from the proto) into a JSON string.
    */
+  private def valueToJson(value: Value): String = {
+    value.getValueCase match {
+      case Value.ValueCase.NULL =>
+        "null"
+      case Value.ValueCase.BYTE =>
+        value.getByte.getV.toString
+      case Value.ValueCase.SHORT =>
+        value.getShort.getV.toString
+      case Value.ValueCase.INT =>
+        value.getInt.getV.toString
+      case Value.ValueCase.LONG =>
+        value.getLong.getV.toString
+      case Value.ValueCase.FLOAT =>
+        value.getFloat.getV.toString
+      case Value.ValueCase.DOUBLE =>
+        value.getDouble.getV.toString
+      case Value.ValueCase.DECIMAL =>
+        // We assume the decimal is already a valid numeric literal.
+        value.getDecimal.getV
+      case Value.ValueCase.BOOL =>
+        if (value.getBool.getV) "true" else "false"
+      case Value.ValueCase.STRING =>
+        "\"" + escapeJson(value.getString.getV) + "\""
+      case Value.ValueCase.BINARY =>
+        // Encode the binary as a base64 string.
+        val bytes = value.getBinary.getV.toByteArray
+        "\"" + java.util.Base64.getEncoder.encodeToString(bytes) + "\""
+      case Value.ValueCase.DATE =>
+        val d = value.getDate
+        // Format as "YYYY-MM-DD"
+        f""""${d.getYear}%04d-${d.getMonth}%02d-${d.getDay}%02d""""
+      case Value.ValueCase.TIME =>
+        val t = value.getTime
+        // Format as "HH:MM:SS"
+        f""""${t.getHour}%02d:${t.getMinute}%02d:${t.getSecond}%02d""""
+      case Value.ValueCase.TIMESTAMP =>
+        val ts = value.getTimestamp
+        // Format as ISO8601 "YYYY-MM-DDTHH:MM:SS"
+        f""""${ts.getYear}%04d-${ts.getMonth}%02d-${ts.getDay}%02dT${ts.getHour}%02d:${ts.getMinute}%02d:${ts.getSecond}%02d""""
+      case Value.ValueCase.INTERVAL =>
+        val iv = value.getInterval
+        // Format using ISO8601 duration notation.
+        s""""P${iv.getYears}Y${iv.getMonths}M${iv.getDays}DT${iv.getHours}H${iv.getMinutes}M${iv.getSeconds}S""""
+      case Value.ValueCase.RECORD =>
+        val rec = value.getRecord
+        // For each attribute in the record, recursively convert its value.
+        val fields = rec.getAttsList.asScala.map { attr =>
+          val name = attr.getName
+          val fieldValue = valueToJson(attr.getValue)
+          s""""${escapeJson(name)}": $fieldValue"""
+        }
+        "{" + fields.mkString(", ") + "}"
+      case Value.ValueCase.LIST =>
+        val lst = value.getList
+        // Recursively convert each element.
+        val elems = lst.getValuesList.asScala.map(valueToJson)
+        "[" + elems.mkString(", ") + "]"
+      case other =>
+        throw new IllegalArgumentException(s"Unsupported Value type: $other")
+    }
+  }
 
-  // TODO dummy
-  private def mkPgValue(value: Value): Either[String, String] = {
-    // Dummy implementation; you would need to handle all types of values.
-    if (value.hasString) Right(value.getString.getV)
-    else if (value.hasInt) Right(value.getInt.getV.toString)
-    else Left(s"unknown value: $value")
+  /**
+   * A helper to escape a JSON string literal (very simple implementation).
+   */
+  private def escapeJsonb(s: String): String = {
+    s.replace("'", "''")
   }
 
   // TODO dummy
   private def quoteIdentifier(name: String): String =
     s""""$name""""
 
-  // TODO dummy
   private def dasTypeToPostgres(tipe: Type): Either[String, String] = {
-    // Dummy implementation; you would need to handle all types of values.
-    if (tipe.hasInt) Right("integer")
-    else if (tipe.hasString) Right("text")
-    else if (tipe.hasRecord) Right("jsonb")
-    else if (tipe.hasAny) Right("jsonb")
-    else if (tipe.hasList) {
-      val innerType = tipe.getList.getInnerType
-      dasTypeToPostgres(innerType).map(t => s"$t[]")
-    } else Left("unknown")
+    tipe.getTypeCase match {
+      case Type.TypeCase.BYTE      => Right("smallint")
+      case Type.TypeCase.SHORT     => Right("smallint")
+      case Type.TypeCase.INT       => Right("integer")
+      case Type.TypeCase.LONG      => Right("bigint")
+      case Type.TypeCase.FLOAT     => Right("real")
+      case Type.TypeCase.DOUBLE    => Right("double precision")
+      case Type.TypeCase.DECIMAL   => Right("numeric")
+      case Type.TypeCase.BOOL      => Right("boolean")
+      case Type.TypeCase.STRING    => Right("text")
+      case Type.TypeCase.BINARY    => Right("bytea")
+      case Type.TypeCase.DATE      => Right("date")
+      case Type.TypeCase.TIME      => Right("time")
+      case Type.TypeCase.TIMESTAMP => Right("timestamp")
+      case Type.TypeCase.INTERVAL  => Right("interval")
+      case Type.TypeCase.RECORD    => Right("jsonb")
+      case Type.TypeCase.ANY       => Right("jsonb")
+      case Type.TypeCase.LIST =>
+        tipe.getList.getInnerType.getTypeCase match {
+          case Type.TypeCase.BYTE      => Right("smallint[]")
+          case Type.TypeCase.SHORT     => Right("smallint[]")
+          case Type.TypeCase.INT       => Right("integer[]")
+          case Type.TypeCase.LONG      => Right("bigint[]")
+          case Type.TypeCase.FLOAT     => Right("real[]")
+          case Type.TypeCase.DOUBLE    => Right("double precision[]")
+          case Type.TypeCase.DECIMAL   => Right("numeric[]")
+          case Type.TypeCase.BOOL      => Right("boolean[]")
+          case Type.TypeCase.STRING    => Right("text[]")
+          case Type.TypeCase.BINARY    => Right("bytea[]")
+          case Type.TypeCase.DATE      => Right("date[]")
+          case Type.TypeCase.TIME      => Right("time[]")
+          case Type.TypeCase.TIMESTAMP => Right("timestamp[]")
+          case Type.TypeCase.INTERVAL  => Right("interval[]")
+          case _                       => Right("jsonb[]")
+        }
+      case _ =>
+        Left(s"dasTypeToPostgres: unsupported type: $tipe")
+    }
   }
-
 }

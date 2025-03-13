@@ -16,7 +16,7 @@ import com.rawlabs.das.sdk.DASSdkInvalidArgumentException
 import com.rawlabs.protocol.das.v1.functions.{FunctionDefinition, FunctionId, ParameterDefinition}
 import com.rawlabs.protocol.das.v1.types._
 
-class RecipeFunction extends DASMockFunction {
+class RecipeListOfTypedRecordsFunction extends DASMockFunction {
 
   // Define an Ingredient case class.
   private case class Ingredient(name: String, quantity: String) {

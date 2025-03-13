@@ -15,17 +15,31 @@ package com.rawlabs.das.mock.functions
 import com.rawlabs.protocol.das.v1.functions.{FunctionDefinition, FunctionId, ParameterDefinition}
 import com.rawlabs.protocol.das.v1.types._
 
-class ZeroParamFunction extends DASMockFunction {
+class MultiplyIntFunction extends DASMockFunction {
 
   def execute(args: Map[String, Value]): Value = {
-    Value.newBuilder().setInt(ValueInt.newBuilder().setV(14)).build()
+    val x = args("x").getInt.getV
+    val y = args("y").getInt.getV
+    Value.newBuilder().setInt(ValueInt.newBuilder().setV(x * y)).build()
   }
 
   def definition: FunctionDefinition = {
     FunctionDefinition
       .newBuilder()
-      .setFunctionId(FunctionId.newBuilder().setName("noarg").build())
-      .setDescription("A function that takes no arguments and returns 14")
+      .setFunctionId(FunctionId.newBuilder().setName("multiply").build())
+      .addParams(
+        ParameterDefinition
+          .newBuilder()
+          .setName("x")
+          .setDescription("an int")
+          .setType(Type.newBuilder().setInt(IntType.newBuilder().setNullable(false).build())))
+      .addParams(
+        ParameterDefinition
+          .newBuilder()
+          .setName("y")
+          .setDescription("an int")
+          .setType(Type.newBuilder().setInt(IntType.newBuilder().setNullable(false).build())))
+      .setDescription("A function that multiplies its two arguments")
       .setReturnType(Type.newBuilder().setInt(IntType.newBuilder()))
       .build()
   }
