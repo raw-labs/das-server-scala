@@ -18,6 +18,16 @@ import com.rawlabs.protocol.das.v1.types._
 
 import scala.jdk.CollectionConverters.IterableHasAsJava
 
+protected case class RecordItem(name: String, t: Type, v: Value) {
+  def asParameter: ParameterDefinition =
+    ParameterDefinition.newBuilder().setName(name).setType(t).setDefaultValue(v).build()
+  def asAttrType: AttrType = AttrType.newBuilder().setName(name).setTipe(t).build()
+  def asAtt(value: Option[Value]): ValueRecordAttr =
+    ValueRecordAttr.newBuilder().setName(name).setValue(value.getOrElse(v)).build()
+}
+
+
+
 class AllTypesFunction extends DASMockFunction {
 
   override def definition: FunctionDefinition = {
@@ -34,15 +44,7 @@ class AllTypesFunction extends DASMockFunction {
       .build()
   }
 
-  private case class RecordItem(name: String, t: Type, v: Value) {
-    def asParameter: ParameterDefinition =
-      ParameterDefinition.newBuilder().setName(name).setType(t).setDefaultValue(v).build()
-    def asAttrType: AttrType = AttrType.newBuilder().setName(name).setTipe(t).build()
-    def asAtt(value: Option[Value]): ValueRecordAttr =
-      ValueRecordAttr.newBuilder().setName(name).setValue(value.getOrElse(v)).build()
-  }
-
-  private val recordItems: Seq[RecordItem] = Seq(
+  protected def recordItems: Seq[RecordItem] = Seq(
     // Byte
     RecordItem(
       "byte_value",
