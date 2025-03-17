@@ -18,8 +18,8 @@ import com.rawlabs.protocol.das.v1.types._
 class SingleRowPlayerInfoUntypedFunction extends SingleRowPlayerInfoTypedFunction {
 
   /**
-   * The function definition. This declares that the function "player_info_untyped" takes one parameter "name" (text) and
-   * returns a record with unspecified fields
+   * The function definition. This declares that the function "player_info_untyped" takes one parameter "name" (text)
+   * and returns a record with unspecified fields
    */
   override def definition: FunctionDefinition = {
     // The anonymous record type.

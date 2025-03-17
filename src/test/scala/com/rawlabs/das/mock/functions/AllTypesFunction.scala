@@ -12,11 +12,11 @@
 
 package com.rawlabs.das.mock.functions
 
+import scala.jdk.CollectionConverters.IterableHasAsJava
+
 import com.google.protobuf.ByteString
 import com.rawlabs.protocol.das.v1.functions.{FunctionDefinition, FunctionId, ParameterDefinition}
 import com.rawlabs.protocol.das.v1.types._
-
-import scala.jdk.CollectionConverters.IterableHasAsJava
 
 protected case class RecordItem(name: String, t: Type, v: Value) {
   def asParameter: ParameterDefinition =
@@ -25,8 +25,6 @@ protected case class RecordItem(name: String, t: Type, v: Value) {
   def asAtt(value: Option[Value]): ValueRecordAttr =
     ValueRecordAttr.newBuilder().setName(name).setValue(value.getOrElse(v)).build()
 }
-
-
 
 class AllTypesFunction extends DASMockFunction {
 
@@ -655,6 +653,54 @@ class AllTypesFunction extends DASMockFunction {
       //    (example: a "RecordItem" or similar)
       RecordItem(
         "list_of_any_value",
+        Type
+          .newBuilder()
+          .setList(listType)
+          .build(),
+        Value
+          .newBuilder()
+          .setList(listValue)
+          .build())
+    },
+
+    // list of lists
+    {
+      // 1) Build the ListType whose inner type is "list"
+      val innerListType = Type
+        .newBuilder()
+        .setList(
+          ListType
+            .newBuilder()
+            .setNullable(true)
+            .setInnerType(Type
+              .newBuilder()
+              .setInt(IntType.newBuilder().setNullable(true))))
+      val listType = ListType
+        .newBuilder()
+        .setNullable(true)
+        .setInnerType(innerListType)
+
+      // 2) Build the ValueList
+      val listValue = ValueList.newBuilder()
+
+      // Add a list of ints
+      val innerListValue1 = ValueList.newBuilder()
+      innerListValue1.addValues(Value.newBuilder().setInt(ValueInt.newBuilder().setV(1)))
+      innerListValue1.addValues(Value.newBuilder().setInt(ValueInt.newBuilder().setV(2)))
+      innerListValue1.addValues(Value.newBuilder().setInt(ValueInt.newBuilder().setV(3)))
+      listValue.addValues(Value.newBuilder().setList(innerListValue1).build())
+
+      // Add a list of ints
+      val innerListValue2 = ValueList.newBuilder()
+      innerListValue2.addValues(Value.newBuilder().setInt(ValueInt.newBuilder().setV(4)))
+      innerListValue2.addValues(Value.newBuilder().setInt(ValueInt.newBuilder().setV(5)))
+      innerListValue2.addValues(Value.newBuilder().setInt(ValueInt.newBuilder().setV(6)))
+      listValue.addValues(Value.newBuilder().setList(innerListValue2).build())
+
+      // 3) Wrap into the final container or structure you're using
+      //    (example: a "RecordItem" or similar)
+      RecordItem(
+        "list_of_lists_value",
         Type
           .newBuilder()
           .setList(listType)

@@ -12,10 +12,10 @@
 
 package com.rawlabs.das.mock.functions
 
+import scala.jdk.CollectionConverters.IterableHasAsJava
+
 import com.rawlabs.protocol.das.v1.functions.{FunctionDefinition, FunctionId}
 import com.rawlabs.protocol.das.v1.types._
-
-import scala.jdk.CollectionConverters.IterableHasAsJava
 
 class AllTypesNullsFunction extends AllTypesFunction {
 

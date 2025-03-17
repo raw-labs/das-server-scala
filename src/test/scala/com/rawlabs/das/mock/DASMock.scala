@@ -9,7 +9,7 @@
 
 package com.rawlabs.das.mock
 
-import com.rawlabs.das.mock.functions.{AllTypesFunction, AllTypesNullsFunction, MultiplyIntFunction, MultiplyStringFunction, NoArgFunction, RangeFunction, RecipeListOfTypedRecordsFunction, RecipeListOfUntypedRecordsFunction, RecordConcatFunction, RockAlbumsListOfRecordsWithNestedList, SingleRowPlayerInfoTypedFunction, SingleRowPlayerInfoUntypedFunction, UnspecifiedRowsFunction}
+import com.rawlabs.das.mock.functions._
 import com.rawlabs.das.sdk.scala._
 import com.rawlabs.protocol.das.v1.functions._
 import com.rawlabs.protocol.das.v1.tables._
@@ -355,6 +355,20 @@ class DASMock(options: Map[String, String]) extends DASSdk with StrictLogging {
                           .build())
                       .build())
                   .build())))
+      .addColumns(
+        ColumnDefinition
+          .newBuilder()
+          .setName("list_of_lists")
+          .setType(
+            Type
+              .newBuilder()
+              .setList(
+                ListType
+                  .newBuilder()
+                  .setInnerType(Type
+                    .newBuilder()
+                    .setList(ListType.newBuilder().setInnerType(Type.newBuilder().setInt(IntType.newBuilder())))))
+              .build()))
       .setStartupCost(1000)
       .build()
     val eventTable = TableDefinition
@@ -393,8 +407,7 @@ class DASMock(options: Map[String, String]) extends DASSdk with StrictLogging {
     new SingleRowPlayerInfoUntypedFunction,
     new RockAlbumsListOfRecordsWithNestedList,
     new AllTypesFunction,
-    new AllTypesNullsFunction,
-  ).map(f => f.definition.getFunctionId.getName -> f).toMap
+    new AllTypesNullsFunction).map(f => f.definition.getFunctionId.getName -> f).toMap
 
   override def functionDefinitions: Seq[FunctionDefinition] = {
     functions.values.map(_.definition).toSeq

@@ -12,11 +12,11 @@
 
 package com.rawlabs.das.server
 
+import scala.jdk.CollectionConverters.CollectionHasAsScala
+
 import com.rawlabs.protocol.das.v1.functions.{FunctionDefinition, ParameterDefinition}
 import com.rawlabs.protocol.das.v1.types.{AttrType, Type, Value}
 import com.typesafe.scalalogging.StrictLogging
-
-import scala.jdk.CollectionConverters.CollectionHasAsScala
 
 class FunctionImport extends StrictLogging {
 
@@ -79,7 +79,10 @@ class FunctionImport extends StrictLogging {
     }
   }
 
-  private def outerFunctionBody(schema: String, options: Map[String, String], definition: FunctionDefinition) = {
+  private def outerFunctionBody(
+      schema: String,
+      options: Map[String, String],
+      definition: FunctionDefinition): Either[String, String] = {
     {
       val qSchema = quoteIdentifier(schema)
       val qFunctionName = quoteIdentifier(definition.getFunctionId.getName)
@@ -103,11 +106,18 @@ class FunctionImport extends StrictLogging {
         val innerType = definition.getReturnType.getList.getInnerType
 
         if (innerType.hasRecord && innerType.getRecord.getAttsCount > 0) {
-          // It's a list of records, and we know the fields. We can expose the whole function
+          // It's a list of records, and we know the fields. It comes as a JSONB but we can expose the whole function
           // output as a TABLE of records.
-          // Extract all fields from the inner jsonb
-          attributesToJsonbExtraction(innerType.getRecord.getAttsList.asScala, row).map { extractions =>
-            s"SELECT ${extractions.mkString(",\n    ")} FROM $call"
+          val tryToExtract = innerType.getRecord.getAttsList.asScala.map(attr =>
+            attributesToJsonbExtraction(attr.getTipe, s"$row->'${attr.getName}'"))
+          val errors = tryToExtract.collect { case Left(error) => error }
+          if (errors.nonEmpty) {
+            val errorMessage = errors.mkString(", ")
+            Left(errorMessage)
+          } else {
+            val extractions = tryToExtract.collect { case Right(extraction) => extraction }
+            // Extract all fields from the inner jsonb
+            Right(s"SELECT ${extractions.mkString(",\n    ")} FROM $call")
           }
         } else {
           // It's a list of something else. Expose the whole function output as a TABLE of one column.
@@ -117,8 +127,16 @@ class FunctionImport extends StrictLogging {
         // It's a record, and we know the fields. We can expose the whole function output
         // as a TABLE of records (one record).
         // Extract all fields from the inner jsonb
-        attributesToJsonbExtraction(definition.getReturnType.getRecord.getAttsList.asScala, row).map { extractions =>
-          s"SELECT ${extractions.mkString(",\n    ")} FROM $innerCall AS $row"
+        val tryToExtract = definition.getReturnType.getRecord.getAttsList.asScala.map(attr =>
+          attributesToJsonbExtraction(attr.getTipe, s"$row->'${attr.getName}'"))
+        val errors = tryToExtract.collect { case Left(error) => error }
+        if (errors.nonEmpty) {
+          val errorMessage = errors.mkString(", ")
+          Left(errorMessage)
+        } else {
+          val extractions = tryToExtract.collect { case Right(extraction) => extraction }
+          // Extract all fields from the inner jsonb
+          Right(s"SELECT ${extractions.mkString(",\n    ")} FROM $innerCall $row")
         }
       } else {
         // It's a scalar. Expose the whole function output as is.
@@ -212,56 +230,51 @@ class FunctionImport extends StrictLogging {
     }
   }
 
-  private def attributesToJsonbExtraction(
-      attrTypes: Iterable[AttrType],
-      rowName: String): Either[String, Iterable[String]] = {
-    val extractions: Iterable[Either[String, String]] = attrTypes.map { attrType =>
-      val fieldName = attrType.getName
-      val fieldType = attrType.getTipe
-      val jsonb = s"($rowName->'$fieldName')"
-      val jsonbText = s"NULLIF($rowName->>'$fieldName', 'NULL')"
-      if (fieldType.hasString) {
-        // Extract a string field from the jsonb as TEXT.
-        Right(jsonbText)
-      } else if (fieldType.hasByte || fieldType.hasShort) {
-        // Cast byte and short fields as smallint.
-        Right(s"$jsonbText::smallint")
-      } else if (fieldType.hasInt) {
-        // Cast integer field.
-        Right(s"$jsonbText::integer")
-      } else if (fieldType.hasLong) {
-        // Cast long field.
-        Right(s"$jsonbText::bigint")
-      } else if (fieldType.hasFloat) {
-        // Cast float field.
-        Right(s"$jsonbText::real")
-      } else if (fieldType.hasDouble) {
-        // Cast double field.
-        Right(s"$jsonbText::double precision")
-      } else if (fieldType.hasDecimal) {
-        Right(s"$jsonbText::numeric")
-      } else if (fieldType.hasBool) {
-        // Cast boolean field.
-        Right(s"$jsonbText::boolean")
-      } else if (fieldType.hasBinary) {
-        // Cast binary field as bytea.
-        Right(s"$jsonbText::bytea")
-      } else if (fieldType.hasDate) {
-        Right(s"$jsonbText::date")
-      } else if (fieldType.hasTime) {
-        Right(s"$jsonbText::time")
-      } else if (fieldType.hasTimestamp) {
-        Right(s"$jsonbText::timestamp")
-      } else if (fieldType.hasInterval) {
-        Right(s"$jsonbText::interval")
-      } else if (fieldType.hasRecord) {
-        // For records, we leave the JSONB expression as is, returning a NULL value if it's null.
-        Right(s"(SELECT CASE WHEN $jsonb = 'null'::jsonb THEN NULL ELSE $jsonb END)")
-      } else if (fieldType.hasList) {
-        // For lists, unnest the JSONB array and cast each element to the inner type.
-        val innerType = fieldType.getList.getInnerType
-        val arrayExpression =
-          if (innerType.hasRecord || innerType.hasList || innerType.hasAny) {
+  private def attributesToJsonbExtraction(fieldType: Type, jsonb: String): Either[String, String] = {
+
+    val asText = s"""(CASE WHEN ($jsonb) = 'null'::jsonb THEN NULL ELSE trim(both '"' FROM (($jsonb)::text)) END)"""
+    if (fieldType.hasString) {
+      // Extract a string field from the jsonb as TEXT.
+      Right(asText)
+    } else if (fieldType.hasByte || fieldType.hasShort) {
+      // Cast byte and short fields as smallint.
+      Right(s"$asText::smallint")
+    } else if (fieldType.hasInt) {
+      // Cast integer field.
+      Right(s"$asText::integer")
+    } else if (fieldType.hasLong) {
+      // Cast long field.
+      Right(s"$asText::bigint")
+    } else if (fieldType.hasFloat) {
+      // Cast float field.
+      Right(s"$asText::real")
+    } else if (fieldType.hasDouble) {
+      // Cast double field.
+      Right(s"$asText::double precision")
+    } else if (fieldType.hasDecimal) {
+      Right(s"$asText::numeric")
+    } else if (fieldType.hasBool) {
+      // Cast boolean field.
+      Right(s"$asText::boolean")
+    } else if (fieldType.hasBinary) {
+      // Cast binary field as bytea.
+      Right(s"$asText::bytea")
+    } else if (fieldType.hasDate) {
+      Right(s"$asText::date")
+    } else if (fieldType.hasTime) {
+      Right(s"$asText::time")
+    } else if (fieldType.hasTimestamp) {
+      Right(s"$asText::timestamp")
+    } else if (fieldType.hasInterval) {
+      Right(s"$asText::interval")
+    } else if (fieldType.hasRecord) {
+      // For records, we leave the JSONB expression as is, returning a NULL value if it's null.
+      Right(s"(SELECT CASE WHEN $jsonb = 'null'::jsonb THEN NULL ELSE $jsonb END)")
+    } else if (fieldType.hasList) {
+      // For lists, unnest the JSONB array and cast each element to the inner type.
+      val innerType = fieldType.getList.getInnerType
+      val arrayExpression =
+        if (innerType.hasRecord || innerType.hasList || innerType.hasAny) {
           // We extract the inner JSONB and leave them untouched
           Right(s"ARRAY(SELECT i FROM jsonb_array_elements($jsonb) i)")
         } else {
@@ -271,20 +284,12 @@ class FunctionImport extends StrictLogging {
             s"ARRAY(SELECT i::$innerPgType FROM $items i)"
           }
         }
-        arrayExpression.map(expression => s"(SELECT CASE WHEN $jsonb = 'null'::jsonb THEN NULL ELSE $expression END)")
-      } else if (fieldType.hasAny) {
-        // We leave the JSONB expression as is, returning a NULL value if it's null.
-        Right(s"(SELECT CASE WHEN $jsonb = 'null'::jsonb THEN NULL ELSE $jsonb END)")
-      } else {
-        Left(s"jsonExtraction: unsupported type $fieldType")
-      }
-    }
-    // Collect errors if any.
-    val errors = extractions.collect { case Left(err) => err }
-    if (errors.nonEmpty) {
-      Left(errors.mkString(", "))
+      arrayExpression.map(expression => s"(SELECT CASE WHEN $jsonb = 'null'::jsonb THEN NULL ELSE $expression END)")
+    } else if (fieldType.hasAny) {
+      // We leave the JSONB expression as is, returning a NULL value if it's null.
+      Right(s"(SELECT CASE WHEN $jsonb = 'null'::jsonb THEN NULL ELSE $jsonb END)")
     } else {
-      Right(extractions.collect { case Right(expr) => expr })
+      Left(s"jsonExtraction: unsupported type $fieldType")
     }
   }
 

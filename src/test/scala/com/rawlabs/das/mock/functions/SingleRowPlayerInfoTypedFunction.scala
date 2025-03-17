@@ -29,8 +29,7 @@ class SingleRowPlayerInfoTypedFunction extends DASMockFunction {
     BasketballPlayer("Magic Johnson", "Los Angeles Lakers", 32, LocalDate.of(1959, 8, 14)),
     BasketballPlayer("Shaquille O'Neal", "Los Angeles Lakers", 34, LocalDate.of(1972, 3, 6)),
     BasketballPlayer("Tim Duncan", "San Antonio Spurs", 21, LocalDate.of(1976, 4, 25)),
-    BasketballPlayer("Dirk Nowitzki", "Dallas Mavericks", 41, LocalDate.of(1978, 6, 19))
-  )
+    BasketballPlayer("Dirk Nowitzki", "Dallas Mavericks", 41, LocalDate.of(1978, 6, 19)))
 
   def execute(args: Map[String, Value]): Value = {
     // Extract player's name from the argument "name"
@@ -41,13 +40,13 @@ class SingleRowPlayerInfoTypedFunction extends DASMockFunction {
 
     // Field "name": return the name string
     recordBuilder.addAtts(
-      ValueRecordAttr.newBuilder()
+      ValueRecordAttr
+        .newBuilder()
         .setName("name")
-        .setValue(
-          Value.newBuilder()
-            .setString(ValueString.newBuilder().setV(name).build())
-        ).build()
-    )
+        .setValue(Value
+          .newBuilder()
+          .setString(ValueString.newBuilder().setV(name).build()))
+        .build())
 
     // Create attribute builders for the other fields.
     val teamAttrBuilder = ValueRecordAttr.newBuilder().setName("team")
@@ -57,20 +56,20 @@ class SingleRowPlayerInfoTypedFunction extends DASMockFunction {
     // Look up the player in our dataset.
     players.find(_.name == name).foreach { player =>
       teamAttrBuilder.setValue(
-        Value.newBuilder()
-          .setString(ValueString.newBuilder().setV(player.team).build())
-      )
+        Value
+          .newBuilder()
+          .setString(ValueString.newBuilder().setV(player.team).build()))
       jerseyAttrBuilder.setValue(
-        Value.newBuilder()
-          .setInt(ValueInt.newBuilder().setV(player.jerseyNumber).build())
-      )
+        Value
+          .newBuilder()
+          .setInt(ValueInt.newBuilder().setV(player.jerseyNumber).build()))
       // Convert the LocalDate to ISO format ("YYYY-MM-DD")
       val birthDateStr = player.birthDate.toString
       // Here we choose to represent the date as a string.
       birthDateAttrBuilder.setValue(
-        Value.newBuilder()
-          .setString(ValueString.newBuilder().setV(birthDateStr).build())
-      )
+        Value
+          .newBuilder()
+          .setString(ValueString.newBuilder().setV(birthDateStr).build()))
     }
 
     // Add the other fields to the record.
@@ -83,75 +82,51 @@ class SingleRowPlayerInfoTypedFunction extends DASMockFunction {
   }
 
   /**
-   * The function definition.
-   * This declares that the function "player_info" takes one parameter "name" (text)
-   * and returns a record with fields:
-   *   - name         (text, non-nullable)
-   *   - team         (text)
+   * The function definition. This declares that the function "player_info" takes one parameter "name" (text) and
+   * returns a record with fields:
+   *   - name (text, non-nullable)
+   *   - team (text)
    *   - jersey_number (integer)
-   *   - birth_date   (date)
+   *   - birth_date (date)
    */
   def definition: FunctionDefinition = {
     // Build the record type.
-    val rowType = Type.newBuilder()
+    val rowType = Type
+      .newBuilder()
       .setRecord(
-        RecordType.newBuilder()
+        RecordType
+          .newBuilder()
           .addAtts(
-            AttrType.newBuilder()
+            AttrType
+              .newBuilder()
               .setName("name")
-              .setTipe(
-                Type.newBuilder().setString(
-                  StringType.newBuilder().setNullable(false).build()
-                )
-              )
-          )
-          .addAtts(
-            AttrType.newBuilder()
-              .setName("team")
-              .setTipe(
-                Type.newBuilder().setString(
-                  StringType.newBuilder().setNullable(true).build()
-                )
-              )
-          )
-          .addAtts(
-            AttrType.newBuilder()
-              .setName("jersey_number")
-              .setTipe(
-                Type.newBuilder().setInt(
-                  IntType.newBuilder().setNullable(true).build()
-                )
-              )
-          )
-          .addAtts(
-            AttrType.newBuilder()
-              .setName("birth_date")
-              .setTipe(
-                Type.newBuilder().setDate(
-                  DateType.newBuilder().setNullable(true).build()
-                )
-              )
-          )
-          .build()
-      )
+              .setTipe(Type.newBuilder().setString(StringType.newBuilder().setNullable(false).build())))
+          .addAtts(AttrType
+            .newBuilder()
+            .setName("team")
+            .setTipe(Type.newBuilder().setString(StringType.newBuilder().setNullable(true).build())))
+          .addAtts(AttrType
+            .newBuilder()
+            .setName("jersey_number")
+            .setTipe(Type.newBuilder().setInt(IntType.newBuilder().setNullable(true).build())))
+          .addAtts(AttrType
+            .newBuilder()
+            .setName("birth_date")
+            .setTipe(Type.newBuilder().setDate(DateType.newBuilder().setNullable(true).build())))
+          .build())
       .build()
 
     // Build the function definition.
-    FunctionDefinition.newBuilder()
-      .setFunctionId(
-        FunctionId.newBuilder().setName("player_info").build()
-      )
+    FunctionDefinition
+      .newBuilder()
+      .setFunctionId(FunctionId.newBuilder().setName("player_info").build())
       .addParams(
-        ParameterDefinition.newBuilder()
+        ParameterDefinition
+          .newBuilder()
           .setName("name")
           .setDescription("player name")
-          .setType(
-            Type.newBuilder().setString(
-              StringType.newBuilder().setNullable(false).build()
-            )
-          )
-          .build()
-      )
+          .setType(Type.newBuilder().setString(StringType.newBuilder().setNullable(false).build()))
+          .build())
       .setDescription("Function that returns the team, jersey number, and birth date of a player")
       .setReturnType(rowType)
       .build()
