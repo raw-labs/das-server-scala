@@ -24,8 +24,7 @@ jobs:
       options: --user 1001:1001
     steps:
       - uses: actions/checkout@v4
-      - run: sbt headerCheckAll
-      - run: sbt scalafmtCheckAll
+      - run: sbt headerCheckAll javafmtCheckAll scalafmtCheckAll
   test:
     runs-on: self-hosted
     container:
@@ -33,4 +32,4 @@ jobs:
       options: --user 1001:1001
     steps:
       - uses: actions/checkout@v4
-      - run: sbt clean compile Test/compile
+      - run: sbt clean Test/compile
