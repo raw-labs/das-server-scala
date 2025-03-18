@@ -51,14 +51,6 @@ class FunctionServiceGrpcImpl(provider: DASSdkManager)
     logger.debug(s"Fetching function definitions for DAS ID: ${request.getDasId}")
 
     withDAS(request.getDasId, responseObserver) { das =>
-      // If you handle environment, you could pass it to your SDK, e.g. das.setEnvironment(env).
-      val envOpt: Option[Environment] = if (request.hasEnv) Some(request.getEnv) else None
-      envOpt.foreach { env =>
-        // Example: If your DASSdk supports some environment injection method:
-        // das.setEnvironment(env)
-      }
-
-      // Suppose the DASSdk exposes a method getFunctionDefinitions returning a Seq[FunctionDefinition]
       val functionDefs = das.getFunctionDefinitions
 
       val response = GetFunctionDefinitionsResponse
@@ -91,10 +83,8 @@ class FunctionServiceGrpcImpl(provider: DASSdkManager)
           }
           .toMap
           .asJava
-        // Execute the function. Suppose your function object has an `execute(args, envOpt)` method returning a Value
         val resultValue = function.execute(sdkArgs)
 
-        // Build the response
         val response = ExecuteFunctionResponse.newBuilder().setOutput(resultValue).build()
         responseObserver.onNext(response)
         responseObserver.onCompleted()
