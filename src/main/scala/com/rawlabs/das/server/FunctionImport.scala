@@ -109,7 +109,7 @@ class FunctionImport extends StrictLogging {
           // It's a list of records, and we know the fields. It comes as a JSONB but we can expose the whole function
           // output as a TABLE of records.
           val tryToExtract = innerType.getRecord.getAttsList.asScala.map(attr =>
-            attributesToJsonbExtraction(attr.getTipe, s"$row->'${attr.getName}'"))
+            attributesToJsonbExtraction(row, attr))
           val errors = tryToExtract.collect { case Left(error) => error }
           if (errors.nonEmpty) {
             val errorMessage = errors.mkString(", ")
@@ -128,7 +128,7 @@ class FunctionImport extends StrictLogging {
         // as a TABLE of records (one record).
         // Extract all fields from the inner jsonb
         val tryToExtract = definition.getReturnType.getRecord.getAttsList.asScala.map(attr =>
-          attributesToJsonbExtraction(attr.getTipe, s"$row->'${attr.getName}'"))
+          attributesToJsonbExtraction(row, attr))
         val errors = tryToExtract.collect { case Left(error) => error }
         if (errors.nonEmpty) {
           val errorMessage = errors.mkString(", ")
@@ -230,9 +230,11 @@ class FunctionImport extends StrictLogging {
     }
   }
 
-  private def attributesToJsonbExtraction(fieldType: Type, jsonb: String): Either[String, String] = {
-
-    val asText = s"""(CASE WHEN ($jsonb) = 'null'::jsonb THEN NULL ELSE trim(both '"' FROM (($jsonb)::text)) END)"""
+  private def attributesToJsonbExtraction(row: String, attrType: AttrType): Either[String, String] = {
+    val fieldName = attrType.getName
+    val fieldType = attrType.getTipe
+    val jsonb = s"($row->'$fieldName')"
+    val asText = s"($row->>'$fieldName')"
     if (fieldType.hasString) {
       // Extract a string field from the jsonb as TEXT.
       Right(asText)
