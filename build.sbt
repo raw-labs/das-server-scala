@@ -1,7 +1,7 @@
 import sbt.*
 import sbt.Keys.*
 
-import com.typesafe.sbt.packager.docker.LayeredMapping
+import com.typesafe.sbt.packager.docker.{Cmd, LayeredMapping}
 
 ThisBuild / credentials += Credentials(
   "GitHub Package Registry",
