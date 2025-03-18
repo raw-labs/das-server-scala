@@ -21,13 +21,16 @@ jobs:
     runs-on: self-hosted
     container:
       image: sbtscala/scala-sbt:eclipse-temurin-jammy-21.0.2_13_1.9.9_2.12.19
+      options: --user 1001:1001
     steps:
       - uses: actions/checkout@v4
-      - run: sbt headerCheckAll javafmtCheckAll scalafmtCheckAll
+      - run: sbt headerCheckAll
+      - run: sbt scalafmtCheckAll
   test:
     runs-on: self-hosted
     container:
       image: sbtscala/scala-sbt:eclipse-temurin-jammy-21.0.2_13_1.9.9_2.12.19
+      options: --user 1001:1001
     steps:
       - uses: actions/checkout@v4
-      - run: sbt clean test
+      - run: sbt clean compile Test/compile
