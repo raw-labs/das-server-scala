@@ -108,7 +108,7 @@ lazy val dockerSettings = Seq(
   })
 
 lazy val root = (project in file("."))
-  .enablePlugins(BuildInfoPlugin)
+  .enablePlugins(BuildInfoPlugin, JavaAppPackaging, DockerPlugin)
   .settings(
     name := "das-server-scala",
     buildInfoKeys := Seq[BuildInfoKey](name, version, scalaVersion),
