@@ -31,7 +31,9 @@ lazy val compileSettings = Seq(
   // Ensure Java-based DAS SDK code is compiled first, so it is accessible from Scala.
   compileOrder := CompileOrder.JavaThenScala,
   // Ensure we fork new JVM for run, so we can set JVM flags.
-  Compile / run / fork := true)
+  Compile / run / fork := true,
+  Compile / mainClass := Some("com.rawlabs.das.server.DASServer")
+  )
 
 lazy val testSettings = Seq(
   // Ensure we fork new JVM for run, so we can set JVM flags.
@@ -108,7 +110,7 @@ lazy val dockerSettings = Seq(
   })
 
 lazy val root = (project in file("."))
-  .enablePlugins(BuildInfoPlugin)
+  .enablePlugins(BuildInfoPlugin, JavaAppPackaging, DockerPlugin)
   .settings(
     name := "das-server-scala",
     buildInfoKeys := Seq[BuildInfoKey](name, version, scalaVersion),
