@@ -31,7 +31,9 @@ lazy val compileSettings = Seq(
   // Ensure Java-based DAS SDK code is compiled first, so it is accessible from Scala.
   compileOrder := CompileOrder.JavaThenScala,
   // Ensure we fork new JVM for run, so we can set JVM flags.
-  Compile / run / fork := true)
+  Compile / run / fork := true,
+  Compile / mainClass := Some("com.rawlabs.das.server.DASServer")
+  )
 
 lazy val testSettings = Seq(
   // Ensure we fork new JVM for run, so we can set JVM flags.
@@ -113,7 +115,6 @@ lazy val root = (project in file("."))
     name := "das-server-scala",
     buildInfoKeys := Seq[BuildInfoKey](name, version, scalaVersion),
     buildInfoPackage := "com.rawlabs.das.server",
-    mainClass := Some("com.rawlabs.das.server.DASServer"),
     strictBuildSettings,
     publishSettings,
     libraryDependencies ++= Seq(
