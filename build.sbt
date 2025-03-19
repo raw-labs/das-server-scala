@@ -113,6 +113,7 @@ lazy val root = (project in file("."))
     name := "das-server-scala",
     buildInfoKeys := Seq[BuildInfoKey](name, version, scalaVersion),
     buildInfoPackage := "com.rawlabs.das.server",
+    mainClass := Some("com.rawlabs.das.server.DASServer"),
     strictBuildSettings,
     publishSettings,
     libraryDependencies ++= Seq(
