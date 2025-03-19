@@ -130,7 +130,7 @@ lazy val root = (project in file("."))
       // Configuration
       "com.typesafe" % "config" % "1.4.3",
       // Protocol DAS
-      "com.raw-labs" %% "protocol-das" % "1.0.1",
+      "com.raw-labs" %% "protocol-das" % "1.0.2",
       // Akka Streams
       "org.apache.pekko" %% "pekko-actor-typed" % "1.1.3",
       "org.apache.pekko" %% "pekko-stream" % "1.1.3",
