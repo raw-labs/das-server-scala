@@ -10,16 +10,13 @@
  * licenses/APL.txt.
  */
 
-package com.rawlabs.das.postgresql
+package com.rawlabs.das.mock.functions
 
-import com.rawlabs.das.sdk.DASSettings
-import com.rawlabs.das.sdk.scala.{DASSdk, DASSdkBuilder}
+import com.rawlabs.das.sdk.scala.DASFunction
+import com.rawlabs.protocol.das.v1.functions.FunctionDefinition
 
-class DASPosgresqlBuilder extends DASSdkBuilder {
+trait DASMockFunction extends DASFunction {
 
-  override def dasType: String = "postgresql"
+  def definition: FunctionDefinition
 
-  override def build(options: Map[String, String])(implicit settings: DASSettings): DASSdk = {
-    new DASPostgresql(options)
-  }
 }

@@ -4,7 +4,13 @@ autoCompilerPlugins := true
 
 addDependencyTreePlugin
 
+libraryDependencies += "commons-io" % "commons-io" % "2.11.0"
+
 addSbtPlugin("org.scalameta" % "sbt-scalafmt" % "2.5.2")
+
+addSbtPlugin("nl.gn0s1s" % "sbt-dotenv" % "3.1.1")
+
+addSbtPlugin("com.github.sbt" % "sbt-native-packager" % "1.11.1")
 
 addSbtPlugin("com.lightbend.sbt" % "sbt-java-formatter" % "0.8.0")
 

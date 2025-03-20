@@ -22,6 +22,7 @@ import org.apache.pekko.stream.Materializer
 import com.rawlabs.das.sdk.DASSettings
 import com.rawlabs.das.server.cache.QueryResultCache
 import com.rawlabs.das.server.grpc.{
+  FunctionServiceGrpcImpl,
   HealthCheckServiceGrpcImpl,
   RegistrationServiceGrpcImpl,
   TableServiceGrpcImpl,
@@ -29,7 +30,12 @@ import com.rawlabs.das.server.grpc.{
 }
 import com.rawlabs.das.server.manager.DASSdkManager
 import com.rawlabs.das.server.webui.{DASWebUIServer, DebugAppService}
-import com.rawlabs.protocol.das.v1.services.{HealthCheckServiceGrpc, RegistrationServiceGrpc, TablesServiceGrpc}
+import com.rawlabs.protocol.das.v1.services.{
+  FunctionsServiceGrpc,
+  HealthCheckServiceGrpc,
+  RegistrationServiceGrpc,
+  TablesServiceGrpc
+}
 
 import io.grpc.{Server, ServerBuilder}
 
@@ -54,7 +60,7 @@ class DASServer(resultCache: QueryResultCache)(
     TablesServiceGrpc
       .bindService(new TableServiceGrpcImpl(dasSdkManager, resultCache, batchLatency))
   }
-//  private val functionsService - FunctionsServiceGrpc.bindService(new FunctionsServiceGrpcImpl(dasSdkManager))
+  private val functionsService = FunctionsServiceGrpc.bindService(new FunctionServiceGrpcImpl(dasSdkManager))
 
   def start(port: Int): Unit =
     server = ServerBuilder
@@ -62,7 +68,7 @@ class DASServer(resultCache: QueryResultCache)(
       .addService(healthCheckService)
       .addService(registrationService)
       .addService(tablesService)
-//      .addService(functionsService)
+      .addService(functionsService)
       .intercept(new ThrowableHandlingInterceptor)
       .build()
       .start()

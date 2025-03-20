@@ -302,6 +302,17 @@ class DASMockAllTypesTable(maxRows: Int) extends DASTable {
             val listBuilder = ValueList.newBuilder()
             records.foreach(r => listBuilder.addValues(r))
             Value.newBuilder().setList(listBuilder.build()).build()
+          },
+          "list_of_lists" -> {
+            val items = (i to i + 3).map(j => {
+              val listBuilder = ValueList.newBuilder()
+              (j to j + 3).foreach(k =>
+                listBuilder.addValues(Value.newBuilder().setInt(ValueInt.newBuilder().setV(k).build())))
+              Value.newBuilder().setList(listBuilder.build()).build()
+            })
+            val listBuilder = ValueList.newBuilder()
+            items.foreach(listBuilder.addValues)
+            Value.newBuilder().setList(listBuilder.build()).build()
           })
         val row = Row.newBuilder()
         columns.foreach(col => row.addColumns(Column.newBuilder().setName(col).setData(values(col))))

@@ -9,6 +9,7 @@
 
 package com.rawlabs.das.mock
 
+import com.rawlabs.das.mock.functions._
 import com.rawlabs.das.sdk.scala._
 import com.rawlabs.protocol.das.v1.functions._
 import com.rawlabs.protocol.das.v1.tables._
@@ -354,6 +355,20 @@ class DASMock(options: Map[String, String]) extends DASSdk with StrictLogging {
                           .build())
                       .build())
                   .build())))
+      .addColumns(
+        ColumnDefinition
+          .newBuilder()
+          .setName("list_of_lists")
+          .setType(
+            Type
+              .newBuilder()
+              .setList(
+                ListType
+                  .newBuilder()
+                  .setInnerType(Type
+                    .newBuilder()
+                    .setList(ListType.newBuilder().setInnerType(Type.newBuilder().setInt(IntType.newBuilder())))))
+              .build()))
       .setStartupCost(1000)
       .build()
     val eventTable = TableDefinition
@@ -379,8 +394,23 @@ class DASMock(options: Map[String, String]) extends DASSdk with StrictLogging {
     Seq(bigTable, smallTable, slowTable, brokenTable, inMemoryTable, allTypesTable, eventTable)
   }
 
+  private val functions = Seq(
+    new RecordConcatFunction,
+    new MultiplyIntFunction,
+    new NoArgFunction,
+    new RecipeListOfTypedRecordsFunction,
+    new RecipeListOfUntypedRecordsFunction,
+    new MultiplyStringFunction,
+    new UnspecifiedRowsFunction,
+    new RangeFunction,
+    new SingleRowPlayerInfoTypedFunction,
+    new SingleRowPlayerInfoUntypedFunction,
+    new RockAlbumsListOfRecordsWithNestedList,
+    new AllTypesFunction,
+    new AllTypesNullsFunction).map(f => f.definition.getFunctionId.getName -> f).toMap
+
   override def functionDefinitions: Seq[FunctionDefinition] = {
-    Seq.empty
+    functions.values.map(_.definition).toSeq
   }
 
   private val tables = Map(
@@ -394,8 +424,6 @@ class DASMock(options: Map[String, String]) extends DASSdk with StrictLogging {
 
   override def getTable(name: String): Option[DASTable] = tables.get(name)
 
-  override def getFunction(name: String): Option[DASFunction] = {
-    None
-  }
+  override def getFunction(name: String): Option[DASFunction] = functions.get(name)
 
 }
