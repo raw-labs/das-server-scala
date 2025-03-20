@@ -32,8 +32,7 @@ lazy val compileSettings = Seq(
   compileOrder := CompileOrder.JavaThenScala,
   // Ensure we fork new JVM for run, so we can set JVM flags.
   Compile / run / fork := true,
-  Compile / mainClass := Some("com.rawlabs.das.server.DASServer")
-  )
+  Compile / mainClass := Some("com.rawlabs.das.server.DASServer"))
 
 lazy val testSettings = Seq(
   // Ensure we fork new JVM for run, so we can set JVM flags.
@@ -135,13 +134,13 @@ lazy val root = (project in file("."))
       "org.apache.pekko" %% "pekko-actor-typed" % "1.1.3",
       "org.apache.pekko" %% "pekko-stream" % "1.1.3",
       "org.apache.pekko" %% "pekko-http" % "1.1.0",
-      // Jackson databind
-      "com.fasterxml.jackson.core" % "jackson-databind" % "2.18.2" % Test,
-      // gRPC Testing
-      "io.grpc" % "grpc-inprocess" % "1.62.2",
       // Web UI
       "com.typesafe.akka" %% "akka-http" % "10.5.3",
       "com.lihaoyi" %% "scalatags" % "0.13.1",
+      // Jackson databind
+      "com.fasterxml.jackson.core" % "jackson-databind" % "2.18.2" % Test,
+      // gRPC Testing
+      "io.grpc" % "grpc-inprocess" % "1.62.2" % Test,
       // Postgres
       "org.postgresql" % "postgresql" % "42.7.4" % Test,
       // Testing
