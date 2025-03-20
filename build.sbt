@@ -96,7 +96,16 @@ lazy val dockerSettings = Seq(
     }
     case lm @ _ => lm
   },
-  dockerAlias := dockerAlias.value.withTag(Option(version.value.replace("+", "-"))),
+  Docker / version := {
+    val ver = version.value
+    // Docker tags have their own restrictions - only allow [a-zA-Z0-9_.-]
+    // Replace + with - and ensure no invalid characters
+    ver.replaceAll("[+]", "-").replaceAll("[^\\w.-]", "-")
+  },
+  dockerAlias := {
+    val devRegistry = sys.env.getOrElse("DEV_REGISTRY", "ghcr.io/raw-labs/das-server-scala")
+    dockerAlias.value.withRegistryHost(Some(devRegistry))
+  },
   dockerAliases := {
     val devRegistry = sys.env.getOrElse("DEV_REGISTRY", "ghcr.io/raw-labs/das-server-scala")
     val releaseRegistry = sys.env.get("RELEASE_DOCKER_REGISTRY")

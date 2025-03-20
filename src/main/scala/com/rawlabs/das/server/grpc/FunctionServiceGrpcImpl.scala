@@ -74,22 +74,20 @@ class FunctionServiceGrpcImpl(provider: DASSdkManager)
       responseObserver: StreamObserver[ExecuteFunctionResponse]): Unit = {
     logger.debug(s"Executing function for DAS ID: ${request.getDasId}, function ID: ${request.getFunctionId.getName}")
 
-    withDAS(request.getDasId, responseObserver) { das =>
-      withFunction(das, request.getFunctionId, responseObserver) { function =>
-        val sdkArgs = request.getArgsList.asScala
-          .map { arg =>
-            assert(arg.hasNamedArg)
-            arg.getNamedArg.getName -> arg.getNamedArg.getValue
-          }
-          .toMap
-          .asJava
-        val resultValue = function.execute(sdkArgs)
+    withFunction(request.getDasId, request.getFunctionId, responseObserver) { function =>
+      val sdkArgs = request.getArgsList.asScala
+        .map { arg =>
+          assert(arg.hasNamedArg)
+          arg.getNamedArg.getName -> arg.getNamedArg.getValue
+        }
+        .toMap
+        .asJava
+      val resultValue = function.execute(sdkArgs)
 
-        val response = ExecuteFunctionResponse.newBuilder().setOutput(resultValue).build()
-        responseObserver.onNext(response)
-        responseObserver.onCompleted()
-        logger.debug("Function executed successfully.")
-      }
+      val response = ExecuteFunctionResponse.newBuilder().setOutput(resultValue).build()
+      responseObserver.onNext(response)
+      responseObserver.onCompleted()
+      logger.debug("Function executed successfully.")
     }
   }
 
@@ -127,34 +125,17 @@ class FunctionServiceGrpcImpl(provider: DASSdkManager)
   /**
    * Helper method to retrieve a function from the DAS. If the function is not found, respond with an error.
    */
-  private def withFunction(das: DASSdk, functionId: FunctionId, responseObserver: StreamObserver[_])(
+  private def withFunction(DASId: DASId, functionId: FunctionId, responseObserver: StreamObserver[_])(
       f: DASFunction => Unit): Unit = {
-    val maybeFunction = das.getFunction(functionId.getName).toScala
-    maybeFunction match {
-      case None =>
-        logger.error(s"Function ${functionId.getName} not found.")
-        responseObserver.onError(
-          Status.INVALID_ARGUMENT.withDescription(s"Function ${functionId.getName} not found").asRuntimeException())
-      case Some(fn) =>
-        try {
-          f(fn)
-        } catch {
-          case ex: DASSdkInvalidArgumentException =>
-            logger.error("DASSdk invalid argument error", ex)
-            responseObserver.onError(Status.INVALID_ARGUMENT.withDescription(ex.getMessage).asRuntimeException())
-          case ex: DASSdkPermissionDeniedException =>
-            logger.error("DASSdk permission denied error", ex)
-            responseObserver.onError(Status.PERMISSION_DENIED.withDescription(ex.getMessage).asRuntimeException())
-          case ex: DASSdkUnauthenticatedException =>
-            logger.error("DASSdk unauthenticated error", ex)
-            responseObserver.onError(Status.UNAUTHENTICATED.withDescription(ex.getMessage).asRuntimeException())
-          case ex: DASSdkUnsupportedException =>
-            logger.error("DASSdk unsupported feature", ex)
-            responseObserver.onError(Status.UNIMPLEMENTED.withDescription(ex.getMessage).asRuntimeException())
-          case t: Throwable =>
-            logger.error("DASSdk unexpected error", t)
-            responseObserver.onError(Status.INTERNAL.withCause(t).asRuntimeException())
-        }
+    withDAS(DASId, responseObserver) { das =>
+      val maybeFunction = das.getFunction(functionId.getName).toScala
+      maybeFunction match {
+        case None =>
+          logger.error(s"Function ${functionId.getName} not found.")
+          responseObserver.onError(
+            Status.INVALID_ARGUMENT.withDescription(s"Function ${functionId.getName} not found").asRuntimeException())
+        case Some(fn) => f(fn)
+      }
     }
   }
 
