@@ -12,6 +12,9 @@
 
 package com.rawlabs.das.server.grpc
 
+import scala.jdk.CollectionConverters._
+import scala.jdk.OptionConverters._
+
 import com.rawlabs.das.sdk._
 import com.rawlabs.das.sdk.{
   DASSdkInvalidArgumentException,
@@ -20,13 +23,11 @@ import com.rawlabs.das.sdk.{
   DASSdkUnsupportedException
 }
 import com.rawlabs.das.server.manager.DASSdkManager
-import com.rawlabs.protocol.das.v1.common.{DASId, Environment}
+import com.rawlabs.protocol.das.v1.common.DASId
 import com.rawlabs.protocol.das.v1.functions.FunctionId
 import com.rawlabs.protocol.das.v1.services._
 import com.typesafe.scalalogging.StrictLogging
 
-import _root_.scala.jdk.CollectionConverters._
-import _root_.scala.jdk.OptionConverters._
 import io.grpc.Status
 import io.grpc.stub.StreamObserver
 
