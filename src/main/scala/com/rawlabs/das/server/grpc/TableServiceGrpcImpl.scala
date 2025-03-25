@@ -12,6 +12,12 @@
 
 package com.rawlabs.das.server.grpc
 
+import scala.concurrent.ExecutionContext
+import scala.concurrent.duration.{DurationInt, FiniteDuration}
+import scala.jdk.CollectionConverters._
+import scala.jdk.OptionConverters._
+import scala.util.{Failure, Success}
+
 import org.apache.pekko.NotUsed
 import org.apache.pekko.stream.scaladsl.{Keep, Sink, Source}
 import org.apache.pekko.stream.{KillSwitches, Materializer, UniqueKillSwitch}
@@ -24,11 +30,6 @@ import com.rawlabs.protocol.das.v1.services._
 import com.rawlabs.protocol.das.v1.tables._
 import com.typesafe.scalalogging.StrictLogging
 
-import _root_.scala.concurrent.ExecutionContext
-import _root_.scala.concurrent.duration.{DurationInt, FiniteDuration}
-import _root_.scala.jdk.CollectionConverters._
-import _root_.scala.jdk.OptionConverters._
-import _root_.scala.util.{Failure, Success}
 import io.grpc.stub.{ServerCallStreamObserver, StreamObserver}
 import io.grpc.{Status, StatusRuntimeException}
 

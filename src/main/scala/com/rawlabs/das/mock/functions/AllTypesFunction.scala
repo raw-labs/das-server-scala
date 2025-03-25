@@ -321,7 +321,7 @@ class AllTypesFunction extends DASMockFunction {
       listValue.addValues(Value.newBuilder().setByte(ValueByte.newBuilder().setV(20)))
       listValue.addValues(Value.newBuilder().setByte(ValueByte.newBuilder().setV(30)))
       RecordItem(
-        "list_of_byte_value",
+        "list_of_bytes_value",
         Type.newBuilder().setList(listType).build(),
         Value.newBuilder().setList(listValue).build())
     },
@@ -335,7 +335,7 @@ class AllTypesFunction extends DASMockFunction {
       listValue.addValues(Value.newBuilder().setShort(ValueShort.newBuilder().setV(200)))
       listValue.addValues(Value.newBuilder().setShort(ValueShort.newBuilder().setV(300)))
       RecordItem(
-        "list_of_short_value",
+        "list_of_shorts_value",
         Type.newBuilder().setList(listType).build(),
         Value.newBuilder().setList(listValue).build())
     },
@@ -353,7 +353,7 @@ class AllTypesFunction extends DASMockFunction {
       listValue.addValues(Value.newBuilder().setInt(ValueInt.newBuilder().setV(3)))
 
       RecordItem(
-        "list_of_int_value",
+        "list_of_ints_value",
         Type
           .newBuilder()
           .setList(listType)
@@ -373,7 +373,7 @@ class AllTypesFunction extends DASMockFunction {
       listValue.addValues(Value.newBuilder().setLong(ValueLong.newBuilder().setV(200000L)))
       listValue.addValues(Value.newBuilder().setLong(ValueLong.newBuilder().setV(300000L)))
       RecordItem(
-        "list_of_long_value",
+        "list_of_longs_value",
         Type.newBuilder().setList(listType).build(),
         Value.newBuilder().setList(listValue).build())
     },
@@ -387,7 +387,7 @@ class AllTypesFunction extends DASMockFunction {
       listValue.addValues(Value.newBuilder().setFloat(ValueFloat.newBuilder().setV(4.56f)))
       listValue.addValues(Value.newBuilder().setFloat(ValueFloat.newBuilder().setV(7.89f)))
       RecordItem(
-        "list_of_float_value",
+        "list_of_floats_value",
         Type.newBuilder().setList(listType).build(),
         Value.newBuilder().setList(listValue).build())
     },
@@ -401,11 +401,28 @@ class AllTypesFunction extends DASMockFunction {
       listValue.addValues(Value.newBuilder().setDouble(ValueDouble.newBuilder().setV(4.56)))
       listValue.addValues(Value.newBuilder().setDouble(ValueDouble.newBuilder().setV(7.89)))
       RecordItem(
-        "list_of_double_value",
+        "list_of_doubles_value",
         Type.newBuilder().setList(listType).build(),
         Value.newBuilder().setList(listValue).build())
     },
 
+    // List of decimals
+    {
+      val listType = ListType.newBuilder().setNullable(true)
+      listType.setInnerType(
+        Type
+          .newBuilder()
+          .setDecimal(DecimalType.newBuilder().setNullable(true))
+          .build())
+      val listValue = ValueList.newBuilder()
+      listValue.addValues(Value.newBuilder().setDecimal(ValueDecimal.newBuilder().setV("1.23")))
+      listValue.addValues(Value.newBuilder().setDecimal(ValueDecimal.newBuilder().setV("4.56")))
+      listValue.addValues(Value.newBuilder().setDecimal(ValueDecimal.newBuilder().setV("7.89")))
+      RecordItem(
+        "list_of_decimals_value",
+        Type.newBuilder().setList(listType).build(),
+        Value.newBuilder().setList(listValue).build())
+    },
     // List of strings
     {
       val listType = ListType.newBuilder().setNullable(true)
@@ -415,7 +432,7 @@ class AllTypesFunction extends DASMockFunction {
       listValue.addValues(Value.newBuilder().setString(ValueString.newBuilder().setV("bar")))
       listValue.addValues(Value.newBuilder().setString(ValueString.newBuilder().setV("baz")))
       RecordItem(
-        "list_of_string_value",
+        "list_of_strings_value",
         Type.newBuilder().setList(listType).build(),
         Value.newBuilder().setList(listValue).build())
     },
@@ -429,7 +446,7 @@ class AllTypesFunction extends DASMockFunction {
       listValue.addValues(Value.newBuilder().setBool(ValueBool.newBuilder().setV(false)))
       listValue.addValues(Value.newBuilder().setBool(ValueBool.newBuilder().setV(true)))
       RecordItem(
-        "list_of_bool_value",
+        "list_of_bools_value",
         Type.newBuilder().setList(listType).build(),
         Value.newBuilder().setList(listValue).build())
     },
@@ -443,7 +460,7 @@ class AllTypesFunction extends DASMockFunction {
       listValue.addValues(Value.newBuilder().setDate(ValueDate.newBuilder().setYear(2022).setMonth(2).setDay(20)))
       listValue.addValues(Value.newBuilder().setDate(ValueDate.newBuilder().setYear(2022).setMonth(3).setDay(25)))
       RecordItem(
-        "list_of_date_value",
+        "list_of_dates_value",
         Type.newBuilder().setList(listType).build(),
         Value.newBuilder().setList(listValue).build())
     },
@@ -460,7 +477,7 @@ class AllTypesFunction extends DASMockFunction {
       listValue.addValues(
         Value.newBuilder().setTime(ValueTime.newBuilder().setHour(15).setMinute(0).setSecond(0).setNano(0)))
       RecordItem(
-        "list_of_time_value",
+        "list_of_times_value",
         Type.newBuilder().setList(listType).build(),
         Value.newBuilder().setList(listValue).build())
     },
@@ -510,11 +527,64 @@ class AllTypesFunction extends DASMockFunction {
               .setSecond(0)
               .setNano(0)))
       RecordItem(
-        "list_of_timestamp_value",
+        "list_of_timestamps_value",
         Type.newBuilder().setList(listType).build(),
         Value.newBuilder().setList(listValue).build())
     },
 
+    // List of intervals
+    {
+      val listType = ListType.newBuilder().setNullable(true)
+      listType.setInnerType(
+        Type
+          .newBuilder()
+          .setInterval(IntervalType.newBuilder().setNullable(true))
+          .build())
+      val listValue = ValueList.newBuilder()
+      listValue.addValues(
+        Value
+          .newBuilder()
+          .setInterval(
+            ValueInterval
+              .newBuilder()
+              .setYears(1)
+              .setMonths(2)
+              .setDays(3)
+              .setHours(4)
+              .setMinutes(5)
+              .setSeconds(6)
+              .setMicros(123456)))
+      listValue.addValues(
+        Value
+          .newBuilder()
+          .setInterval(
+            ValueInterval
+              .newBuilder()
+              .setYears(10)
+              .setMonths(2)
+              .setDays(3)
+              .setHours(4)
+              .setMinutes(5)
+              .setSeconds(6)
+              .setMicros(123456)))
+      listValue.addValues(
+        Value
+          .newBuilder()
+          .setInterval(
+            ValueInterval
+              .newBuilder()
+              .setYears(100)
+              .setMonths(2)
+              .setDays(3)
+              .setHours(4)
+              .setMinutes(5)
+              .setSeconds(6)
+              .setMicros(123456)))
+      RecordItem(
+        "list_of_intervals_value",
+        Type.newBuilder().setList(listType).build(),
+        Value.newBuilder().setList(listValue).build())
+    },
     // List of binary values
     {
       val listType = ListType.newBuilder().setNullable(true)
@@ -524,7 +594,7 @@ class AllTypesFunction extends DASMockFunction {
       listValue.addValues(Value.newBuilder().setBinary(ValueBinary.newBuilder().setV(ByteString.copyFromUtf8("def"))))
       listValue.addValues(Value.newBuilder().setBinary(ValueBinary.newBuilder().setV(ByteString.copyFromUtf8("ghi"))))
       RecordItem(
-        "list_of_binary_value",
+        "list_of_binarys_value",
         Type.newBuilder().setList(listType).build(),
         Value.newBuilder().setList(listValue).build())
     },
