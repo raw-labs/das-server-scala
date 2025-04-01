@@ -266,7 +266,7 @@ public class DASSettings {
   /**
    * Retrieves an optional value as a size in bytes (parses special strings like "128M").
    *
-   * @param property
+   * @param property The property name.
    * @return An Optional containing the long value if found, else empty.
    * @throws SettingsException if there's an issue other than missing property.
    */
