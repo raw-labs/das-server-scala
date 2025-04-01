@@ -263,12 +263,13 @@ public class DASSettings {
         });
   }
 
-    /**
-     * Retrieves an optional value as a size in bytes (parses special strings like "128M").
-     * @param property
-     * @return An Optional containing the long value if found, else empty.
-     * @throws SettingsException if there's an issue other than missing property.
-     */
+  /**
+   * Retrieves an optional value as a size in bytes (parses special strings like "128M").
+   *
+   * @param property
+   * @return An Optional containing the long value if found, else empty.
+   * @throws SettingsException if there's an issue other than missing property.
+   */
   public Optional<Long> getBytesOpt(String property) throws SettingsException {
     return withLogConfigException(
         property,
