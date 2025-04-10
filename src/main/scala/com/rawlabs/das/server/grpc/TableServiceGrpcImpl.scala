@@ -141,7 +141,8 @@ class TableServiceGrpcImpl(
           request.getQuery.getQualsList,
           request.getQuery.getColumnsList,
           request.getQuery.getSortKeysList,
-          if (request.getQuery.hasLimit) java.lang.Long.valueOf(request.getQuery.getLimit) else null)
+          if (request.getQuery.hasLimit) java.lang.Long.valueOf(request.getQuery.getLimit) else null,
+          if (request.hasEnv) request.getEnv else null)
       val response = ExplainTableResponse.newBuilder().addAllStmts(explanation).build()
       responseObserver.onNext(response)
       responseObserver.onCompleted()
@@ -182,6 +183,7 @@ class TableServiceGrpcImpl(
     val columns = request.getQuery.getColumnsList.asScala.toSeq
     val sortKeys = request.getQuery.getSortKeysList.asScala.toSeq
     val maybeLimit = if (request.getQuery.hasLimit) Some(request.getQuery.getLimit) else None
+    val maybeEnv = if (request.hasEnv) Some(request.getEnv) else None
 
     withTable(request.getDasId, request.getTableId, responseObserver) { table =>
       /* This function runs the query and returns a Source of Rows. Rows are batches of Row aggregated
@@ -198,7 +200,12 @@ class TableServiceGrpcImpl(
           }
         }
         val dasExecuteResult: DASExecuteResult =
-          table.execute(quals.asJava, columns.asJava, sortKeys.asJava, maybeLimit.map(java.lang.Long.valueOf).orNull)
+          table.execute(
+            quals.asJava,
+            columns.asJava,
+            sortKeys.asJava,
+            maybeLimit.map(java.lang.Long.valueOf).orNull,
+            maybeEnv.orNull)
 
         val source: Source[Row, NotUsed] = Source.unfoldResource[Row, DASExecuteResult](
           create = () => dasExecuteResult,

@@ -12,6 +12,7 @@
 
 package com.rawlabs.das.sdk;
 
+import com.rawlabs.protocol.das.v1.common.Environment;
 import com.rawlabs.protocol.das.v1.types.Value;
 import java.util.Map;
 
@@ -24,5 +25,5 @@ public interface DASFunction {
    * @param args a map from argument names to Values
    * @return the computed Value
    */
-  Value execute(Map<String, Value> args);
+  Value execute(Map<String, Value> args, Environment env);
 }

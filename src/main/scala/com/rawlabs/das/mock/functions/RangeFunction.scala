@@ -13,12 +13,13 @@
 package com.rawlabs.das.mock.functions
 
 import com.rawlabs.das.sdk.DASSdkInvalidArgumentException
+import com.rawlabs.protocol.das.v1.common.Environment
 import com.rawlabs.protocol.das.v1.functions.{FunctionDefinition, FunctionId, ParameterDefinition}
 import com.rawlabs.protocol.das.v1.types._
 
 class RangeFunction extends DASMockFunction {
 
-  def execute(args: Map[String, Value]): Value = {
+  def execute(args: Map[String, Value], maybeEnv: Option[Environment]): Value = {
     if (!args("n").hasInt) {
       throw new DASSdkInvalidArgumentException("The n argument must be a string")
     }

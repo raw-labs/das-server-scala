@@ -18,6 +18,7 @@ import scala.collection.mutable
 
 import com.rawlabs.das.sdk.scala.DASTable
 import com.rawlabs.das.sdk.{DASExecuteResult, DASSdkInvalidArgumentException}
+import com.rawlabs.protocol.das.v1.common.Environment
 import com.rawlabs.protocol.das.v1.query.{Operator, Qual, SortKey}
 import com.rawlabs.protocol.das.v1.tables.{Column, Row}
 import com.rawlabs.protocol.das.v1.types.{Value, ValueDate, ValueString}
@@ -52,7 +53,8 @@ class DASMockEventTable extends DASTable with StrictLogging {
       quals: Seq[Qual],
       columns: Seq[String],
       sortKeys: Seq[SortKey],
-      maybeLimit: Option[Long]): Seq[String] = {
+      maybeLimit: Option[Long],
+      maybeEnv: Option[Environment]): Seq[String] = {
     val dateFilters = extractDateFilters(quals)
     Seq(s"Applying ${dateFilters.size} date filters")
   }
@@ -61,7 +63,8 @@ class DASMockEventTable extends DASTable with StrictLogging {
       quals: Seq[Qual],
       columns: Seq[String],
       sortKeys: Seq[SortKey],
-      maybeLimit: Option[Long]): DASExecuteResult = {
+      maybeLimit: Option[Long],
+      maybeEnv: Option[Environment]): DASExecuteResult = {
     logger.info(s"Executing query with quals: $quals, columns: $columns, sortKeys: $sortKeys, limit: $maybeLimit")
 
     val dateFilters = extractDateFilters(quals)

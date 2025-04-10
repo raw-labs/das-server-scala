@@ -12,13 +12,14 @@
 
 package com.rawlabs.das.mock.functions
 
+import com.rawlabs.protocol.das.v1.common.Environment
 import com.rawlabs.protocol.das.v1.functions.{FunctionDefinition, FunctionId, ParameterDefinition}
 import com.rawlabs.protocol.das.v1.types._
 
 class RecordConcatFunction extends DASMockFunction {
 
   /* Concatenates the two records x and y */
-  def execute(args: Map[String, Value]): Value = {
+  def execute(args: Map[String, Value], maybeEnv: Option[Environment]): Value = {
     val x = args("x").getRecord
     val y = args("y").getRecord
     val builder = ValueRecord.newBuilder()

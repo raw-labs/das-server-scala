@@ -12,6 +12,7 @@
 
 package com.rawlabs.das.sdk.scala
 
+import com.rawlabs.protocol.das.v1.common.Environment
 import com.rawlabs.protocol.das.v1.types.Value
 
 /**
@@ -25,6 +26,6 @@ trait DASFunction {
    * @param args a map from argument names to Values
    * @return the computed Value
    */
-  def execute(args: Map[String, Value]): Value
+  def execute(args: Map[String, Value], env: Option[Environment]): Value
 
 }
