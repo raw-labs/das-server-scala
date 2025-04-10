@@ -32,4 +32,4 @@ jobs:
       options: --user 1001:1001
     steps:
       - uses: actions/checkout@v4
-      - run: sbt clean Test/compile
+      - run: sbt clean test
