@@ -149,7 +149,7 @@ lazy val root = (project in file("."))
       // Jackson databind
       "com.fasterxml.jackson.core" % "jackson-databind" % "2.18.2" % Test,
       // gRPC Testing
-      "io.grpc" % "grpc-inprocess" % "1.62.2" % Test,
+      "io.grpc" % "grpc-inprocess" % "1.69.1" % Test,
       // Postgres
       "org.postgresql" % "postgresql" % "42.7.4" % Test,
       // Testing
