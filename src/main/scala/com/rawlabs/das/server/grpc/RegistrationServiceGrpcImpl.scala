@@ -44,7 +44,7 @@ class RegistrationServiceGrpcImpl(dasSdkManager: DASSdkManager)
    * @param responseObserver The observer to send responses.
    */
   override def register(request: RegisterRequest, responseObserver: StreamObserver[RegisterResponse]): Unit = {
-    logger.debug(s"Registering DAS with type: ${request.getDefinition.getType}")
+    logger.info(s"Registering DAS with type: ${request.getDefinition.getType}")
     try {
       val dasId = dasSdkManager.registerDAS(
         request.getDefinition.getType,
@@ -52,7 +52,7 @@ class RegistrationServiceGrpcImpl(dasSdkManager: DASSdkManager)
         maybeDasId = if (request.hasId) Some(request.getId) else None)
       responseObserver.onNext(dasId)
       responseObserver.onCompleted()
-      logger.debug(s"DAS registered successfully with ID: $dasId")
+      logger.info(s"DAS registered successfully with ID: $dasId")
     } catch {
       case ex: DASSdkInvalidArgumentException =>
         logger.error("DASSdk invalid argument error", ex)
@@ -80,11 +80,11 @@ class RegistrationServiceGrpcImpl(dasSdkManager: DASSdkManager)
    * @param responseObserver The observer to send responses.
    */
   override def unregister(request: DASId, responseObserver: StreamObserver[UnregisterResponse]): Unit = {
-    logger.debug(s"Unregistering DAS with ID: ${request.getId}")
+    logger.info(s"Unregistering DAS with ID: ${request.getId}")
     dasSdkManager.unregisterDAS(request)
     responseObserver.onNext(UnregisterResponse.newBuilder().build())
     responseObserver.onCompleted()
-    logger.debug(s"DAS unregistered successfully with ID: ${request.getId}")
+    logger.info(s"DAS unregistered successfully with ID: ${request.getId}")
   }
 
 }

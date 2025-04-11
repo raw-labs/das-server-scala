@@ -156,7 +156,7 @@ class DASSdkManager(implicit settings: DASSettings) extends StrictLogging {
           // If no other DAS references this config, invalidate it to trigger a close
           if (!dasSdkConfigCache.values.exists(_ == config)) {
             dasSdkCache.invalidate(config)
-            logger.debug(s"DAS cache invalidated for config of type ${config.dasType}")
+            logger.info(s"DAS cache invalidated for config of type ${config.dasType}")
           }
 
         case None =>
@@ -235,7 +235,7 @@ class DASSdkManager(implicit settings: DASSettings) extends StrictLogging {
               .toMap
 
             ids.put(id, (dasType, options))
-            logger.debug(s"Read DAS configuration for ID: $id, Type: $dasType")
+            logger.info(s"Read DAS configuration for ID: $id, Type: $dasType")
           }
       }
     }
@@ -251,7 +251,7 @@ class DASSdkManager(implicit settings: DASSettings) extends StrictLogging {
     readDASFromConfig().foreach { case (id, (dasType, options)) =>
       val dasId = DASId.newBuilder().setId(id).build()
       registerDAS(dasType, options, Some(dasId))
-      logger.debug(s"Registered DAS from config with ID: $id")
+      logger.info(s"Registered DAS from config with ID: $id")
     }
   }
 
