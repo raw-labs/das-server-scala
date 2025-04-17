@@ -12,12 +12,13 @@
 
 package com.rawlabs.das.mock.functions
 
+import com.rawlabs.protocol.das.v1.common.Environment
 import com.rawlabs.protocol.das.v1.functions.{FunctionDefinition, FunctionId, ParameterDefinition}
 import com.rawlabs.protocol.das.v1.types._
 
 class MultiplyIntFunction extends DASMockFunction {
 
-  def execute(args: Map[String, Value]): Value = {
+  def execute(args: Map[String, Value], maybeEnv: Option[Environment]): Value = {
     val x = args("x").getInt.getV
     val y = args("y").getInt.getV
     Value.newBuilder().setInt(ValueInt.newBuilder().setV(x * y)).build()

@@ -12,6 +12,7 @@
 
 package com.rawlabs.das.mock.functions
 
+import com.rawlabs.protocol.das.v1.common.Environment
 import com.rawlabs.protocol.das.v1.functions.{FunctionDefinition, FunctionId, ParameterDefinition}
 import com.rawlabs.protocol.das.v1.types._
 
@@ -31,7 +32,7 @@ class SingleRowPlayerInfoTypedFunction extends DASMockFunction {
     BasketballPlayer("Tim Duncan", "San Antonio Spurs", 21, LocalDate.of(1976, 4, 25)),
     BasketballPlayer("Dirk Nowitzki", "Dallas Mavericks", 41, LocalDate.of(1978, 6, 19)))
 
-  def execute(args: Map[String, Value]): Value = {
+  def execute(args: Map[String, Value], maybeEnv: Option[Environment]): Value = {
     // Extract player's name from the argument "name"
     val name = args("name").getString.getV
 

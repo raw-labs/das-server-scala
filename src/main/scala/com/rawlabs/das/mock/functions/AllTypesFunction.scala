@@ -15,6 +15,7 @@ package com.rawlabs.das.mock.functions
 import scala.jdk.CollectionConverters.IterableHasAsJava
 
 import com.google.protobuf.ByteString
+import com.rawlabs.protocol.das.v1.common.Environment
 import com.rawlabs.protocol.das.v1.functions.{FunctionDefinition, FunctionId, ParameterDefinition}
 import com.rawlabs.protocol.das.v1.types._
 
@@ -787,7 +788,7 @@ class AllTypesFunction extends DASMockFunction {
    * @param args a map from argument names to Values
    * @return the computed Value
    */
-  override def execute(args: Map[String, Value]): Value = {
+  override def execute(args: Map[String, Value], maybeEnv: Option[Environment]): Value = {
     // Returns a record with all the values, using the provided arguments if available.
     val values = recordItems.map { item =>
       val maybeArg = args.get(item.name)

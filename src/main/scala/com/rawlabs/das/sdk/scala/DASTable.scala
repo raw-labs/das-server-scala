@@ -12,8 +12,8 @@
 
 package com.rawlabs.das.sdk.scala
 
-import com.rawlabs.das.sdk.DASExecuteResult
-import com.rawlabs.das.sdk.DASSdkUnsupportedException
+import com.rawlabs.das.sdk.{DASExecuteResult, DASSdkUnsupportedException}
+import com.rawlabs.protocol.das.v1.common.Environment
 import com.rawlabs.protocol.das.v1.query.{PathKey, Qual, SortKey}
 import com.rawlabs.protocol.das.v1.tables.Row
 import com.rawlabs.protocol.das.v1.types.Value
@@ -58,7 +58,12 @@ trait DASTable {
    * @param sortKeys sort keys to apply
    * @return a list of explanation lines
    */
-  def explain(quals: Seq[Qual], columns: Seq[String], sortKeys: Seq[SortKey], maybeLimit: Option[Long]): Seq[String] =
+  def explain(
+      quals: Seq[Qual],
+      columns: Seq[String],
+      sortKeys: Seq[SortKey],
+      maybeLimit: Option[Long],
+      maybeEnv: Option[Environment]): Seq[String] =
     Seq.empty
 
   /**
@@ -73,7 +78,8 @@ trait DASTable {
       quals: Seq[Qual],
       columns: Seq[String],
       sortKeys: Seq[SortKey],
-      maybeLimit: Option[Long]): DASExecuteResult
+      maybeLimit: Option[Long],
+      maybeEnv: Option[Environment]): DASExecuteResult
 
   /**
    * Unique column of the table, if any. This is used to identify rows in the table in case of update or delete
