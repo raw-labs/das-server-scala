@@ -83,7 +83,7 @@ class FunctionServiceGrpcImpl(provider: DASSdkManager)
         }
         .toMap
         .asJava
-      val resultValue = function.execute(sdkArgs)
+      val resultValue = function.execute(sdkArgs, if (request.hasEnv) request.getEnv else null)
 
       val response = ExecuteFunctionResponse.newBuilder().setOutput(resultValue).build()
       responseObserver.onNext(response)

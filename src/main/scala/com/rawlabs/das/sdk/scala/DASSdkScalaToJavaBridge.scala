@@ -18,6 +18,7 @@ import scala.jdk.CollectionConverters._
 
 import com.rawlabs.das.sdk.DASExecuteResult
 import com.rawlabs.das.sdk.DASTable.TableEstimate
+import com.rawlabs.protocol.das.v1.common.Environment
 import com.rawlabs.protocol.das.v1.query.{PathKey, Qual, SortKey}
 import com.rawlabs.protocol.das.v1.tables.Row
 import com.rawlabs.protocol.das.v1.types.Value
@@ -66,20 +67,28 @@ class DASTableScalaToJavaBridge(scalaTable: DASTable) extends com.rawlabs.das.sd
       quals: util.List[Qual],
       columns: util.List[String],
       sortKeys: util.List[SortKey],
-      maybeLimit: java.lang.Long): util.List[String] = scalaTable
-    .explain(quals.asScala.toSeq, columns.asScala.toSeq, sortKeys.asScala.toSeq, Option(maybeLimit).map(_.toLong))
+      maybeLimit: java.lang.Long,
+      env: Environment): util.List[String] = scalaTable
+    .explain(
+      quals.asScala.toSeq,
+      columns.asScala.toSeq,
+      sortKeys.asScala.toSeq,
+      Option(maybeLimit).map(_.toLong),
+      Option(env))
     .asJava
 
   final override def execute(
       quals: util.List[Qual],
       columns: util.List[String],
       sortKeys: util.List[SortKey],
-      maybeLimit: java.lang.Long): DASExecuteResult =
+      maybeLimit: java.lang.Long,
+      env: Environment): DASExecuteResult =
     scalaTable.execute(
       quals.asScala.toSeq,
       columns.asScala.toSeq,
       sortKeys.asScala.toSeq,
-      Option(maybeLimit).map(_.toLong))
+      Option(maybeLimit).map(_.toLong),
+      Option(env))
 
   final override def uniqueColumn: String = scalaTable.uniqueColumn
 
@@ -99,7 +108,7 @@ class DASTableScalaToJavaBridge(scalaTable: DASTable) extends com.rawlabs.das.sd
 
 class DASFunctionScalaToJavaBridge(scalaFunction: DASFunction) extends com.rawlabs.das.sdk.DASFunction {
 
-  final override def execute(args: util.Map[String, Value]): Value =
-    scalaFunction.execute(args.asScala.toMap)
+  final override def execute(args: util.Map[String, Value], env: Environment): Value =
+    scalaFunction.execute(args.asScala.toMap, Option(env))
 
 }

@@ -13,6 +13,7 @@
 package com.rawlabs.das.mock.functions
 
 import com.rawlabs.das.sdk.DASSdkInvalidArgumentException
+import com.rawlabs.protocol.das.v1.common.Environment
 import com.rawlabs.protocol.das.v1.functions.{FunctionDefinition, FunctionId, ParameterDefinition}
 import com.rawlabs.protocol.das.v1.types._
 
@@ -41,7 +42,7 @@ class RockAlbumsListOfRecordsWithNestedList extends DASMockFunction {
    *
    * This function ignores any input arguments and returns a Value containing a list of album records.
    */
-  def execute(args: Map[String, Value]): Value = {
+  def execute(args: Map[String, Value], maybeEnv: Option[Environment]): Value = {
     // Create a builder for a ValueList.
     val listBuilder = ValueList.newBuilder()
     // For each album in our dataset, build a record.

@@ -13,6 +13,7 @@
 package com.rawlabs.das.mock.functions
 
 import com.rawlabs.das.sdk.DASSdkInvalidArgumentException
+import com.rawlabs.protocol.das.v1.common.Environment
 import com.rawlabs.protocol.das.v1.functions.{FunctionDefinition, FunctionId, ParameterDefinition}
 import com.rawlabs.protocol.das.v1.types._
 
@@ -72,7 +73,7 @@ class RecipeListOfTypedRecordsFunction extends DASMockFunction {
       Ingredient("Sour Cream", "30ml"),
       Ingredient("Avocado", "1, sliced")))
 
-  def execute(args: Map[String, Value]): Value = {
+  def execute(args: Map[String, Value], maybeEnv: Option[Environment]): Value = {
     if (!args("dish").hasString) {
       throw new DASSdkInvalidArgumentException("The dish argument must be a string")
     }

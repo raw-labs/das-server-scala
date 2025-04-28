@@ -16,6 +16,7 @@ import scala.jdk.CollectionConverters._
 
 import com.rawlabs.das.sdk.DASExecuteResult
 import com.rawlabs.das.sdk.scala.DASTable
+import com.rawlabs.protocol.das.v1.common.Environment
 import com.rawlabs.protocol.das.v1.query.Operator
 import com.rawlabs.protocol.das.v1.query.Qual
 import com.rawlabs.protocol.das.v1.query.SortKey
@@ -53,7 +54,8 @@ class DASMockInMemoryTable(private val dasMockStorage: DASMockStorage) extends D
       quals: Seq[Qual],
       columns: Seq[String],
       sortKeys: Seq[SortKey],
-      maybeLimit: Option[Long]): DASExecuteResult = {
+      maybeLimit: Option[Long],
+      maybeEnv: Option[Environment]): DASExecuteResult = {
     logger.info(s"Executing query with quals: $quals, columns: $columns, sortKeys: $sortKeys")
 
     new DASExecuteResult {

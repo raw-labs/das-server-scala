@@ -247,6 +247,44 @@ public class DASSettings {
   }
 
   /**
+   * Retrieves a value as a size in bytes (parses special strings like "128M").
+   *
+   * @param property The property name.
+   * @return The long value.
+   * @throws SettingsException if there's an issue retrieving the property.
+   */
+  public Long getBytes(String property) throws SettingsException {
+    return withLogConfigException(
+        property,
+        () -> {
+          Long value = config.getBytes(property);
+          logOneTime(property, value, "bytes");
+          return value;
+        });
+  }
+
+  /**
+   * Retrieves an optional value as a size in bytes (parses special strings like "128M").
+   *
+   * @param property The property name.
+   * @return An Optional containing the long value if found, else empty.
+   * @throws SettingsException if there's an issue other than missing property.
+   */
+  public Optional<Long> getBytesOpt(String property) throws SettingsException {
+    return withLogConfigException(
+        property,
+        () -> {
+          try {
+            Long value = config.getBytes(property);
+            logOneTime(property, value, "bytes");
+            return Optional.of(value);
+          } catch (ConfigException.Missing e) {
+            return Optional.empty();
+          }
+        });
+  }
+
+  /**
    * Retrieves a subtree of the configuration as a map of strings.
    *
    * @param property The property name.

@@ -12,6 +12,7 @@
 
 package com.rawlabs.das.sdk;
 
+import com.rawlabs.protocol.das.v1.common.Environment;
 import com.rawlabs.protocol.das.v1.query.PathKey;
 import com.rawlabs.protocol.das.v1.query.Qual;
 import com.rawlabs.protocol.das.v1.query.SortKey;
@@ -79,7 +80,11 @@ public interface DASTable {
    * @return a list of explanation lines
    */
   default List<String> explain(
-      List<Qual> quals, List<String> columns, List<SortKey> sortKeys, Long maybeLimit) {
+      List<Qual> quals,
+      List<String> columns,
+      List<SortKey> sortKeys,
+      Long maybeLimit,
+      Environment env) {
     return Collections.emptyList();
   }
 
@@ -92,7 +97,11 @@ public interface DASTable {
    * @return a closeable iterator of rows
    */
   DASExecuteResult execute(
-      List<Qual> quals, List<String> columns, List<SortKey> sortKeys, Long maybeLimit);
+      List<Qual> quals,
+      List<String> columns,
+      List<SortKey> sortKeys,
+      Long maybeLimit,
+      Environment env);
 
   /**
    * Unique column of the table, if any. This is used to identify rows in the table in case of

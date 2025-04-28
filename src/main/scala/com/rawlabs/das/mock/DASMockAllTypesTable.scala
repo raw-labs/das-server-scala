@@ -17,6 +17,7 @@ import java.time.{LocalDate, LocalDateTime, LocalTime}
 import com.google.protobuf.ByteString
 import com.rawlabs.das.sdk.DASExecuteResult
 import com.rawlabs.das.sdk.scala.DASTable
+import com.rawlabs.protocol.das.v1.common.Environment
 import com.rawlabs.protocol.das.v1.query._
 import com.rawlabs.protocol.das.v1.tables._
 import com.rawlabs.protocol.das.v1.types._
@@ -31,7 +32,8 @@ class DASMockAllTypesTable(maxRows: Int) extends DASTable {
       quals: Seq[Qual],
       columns: Seq[String],
       sortKeys: Seq[SortKey],
-      maybeLimit: Option[Long]): DASExecuteResult = {
+      maybeLimit: Option[Long],
+      maybeEnv: Option[Environment]): DASExecuteResult = {
     new DASExecuteResult {
 
       private val iterator = Range(1, maxRows + 1).iterator
