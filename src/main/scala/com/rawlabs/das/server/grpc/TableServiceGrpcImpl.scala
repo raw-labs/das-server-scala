@@ -61,7 +61,7 @@ class TableServiceGrpcImpl(
       val response = GetTableDefinitionsResponse.newBuilder().addAllDefinitions(tableDefinitions).build()
       responseObserver.onNext(response)
       responseObserver.onCompleted()
-      logger.debug("Table definitions sent successfully.")
+      logger.info(s"Table definitions (${tableDefinitions.size} tables) sent successfully.")
     }
   }
 
@@ -134,7 +134,7 @@ class TableServiceGrpcImpl(
   override def explainTable(
       request: ExplainTableRequest,
       responseObserver: StreamObserver[ExplainTableResponse]): Unit = {
-    logger.debug(s"Explaining query for Table ID: ${request.getTableId.getName}")
+    logger.info(s"Explaining query for Table ID: ${request.getTableId.getName}")
     withTable(request.getDasId, request.getTableId, responseObserver) { table =>
       val explanation =
         table.explain(
@@ -157,7 +157,7 @@ class TableServiceGrpcImpl(
    * @param responseObserver The observer to send responses.
    */
   override def executeTable(request: ExecuteTableRequest, responseObserver: StreamObserver[Rows]): Unit = {
-    logger.debug(s"Executing query for Table ID: ${request.getTableId.getName}")
+    logger.info(s"Executing query for Table ID: ${request.getTableId.getName}")
 
     // Check if the responseObserver is a ServerCallStreamObserver. If so, we can set an onCancel handler.
     val maybeServerCallObs: Option[ServerCallStreamObserver[Rows]] = responseObserver match {
@@ -293,7 +293,7 @@ class TableServiceGrpcImpl(
     doneF.onComplete {
       case Success(_) =>
         // If it's a normal completion, check if the stream was cancelled
-        logger.debug(s"Streaming completed successfully for planID=${request.getPlanId}.")
+        logger.info(s"Streaming completed successfully for planID=${request.getPlanId}.")
         maybeServerCallObs match {
           case Some(sco) if !sco.isCancelled =>
             sco.onCompleted()
@@ -362,7 +362,7 @@ class TableServiceGrpcImpl(
    * @param responseObserver The observer to send responses.
    */
   override def insertTable(request: InsertTableRequest, responseObserver: StreamObserver[InsertTableResponse]): Unit = {
-    logger.debug(s"Inserting row into Table ID: ${request.getTableId.getName}")
+    logger.info(s"Inserting row into Table ID: ${request.getTableId.getName}")
     withTable(request.getDasId, request.getTableId, responseObserver) { table =>
       val row = table.insert(request.getRow)
       responseObserver.onNext(InsertTableResponse.newBuilder().setRow(row).build())
@@ -380,7 +380,7 @@ class TableServiceGrpcImpl(
   override def bulkInsertTable(
       request: BulkInsertTableRequest,
       responseObserver: StreamObserver[BulkInsertTableResponse]): Unit = {
-    logger.debug(s"Performing bulk insert into Table ID: ${request.getTableId.getName}")
+    logger.info(s"Performing bulk insert into Table ID: ${request.getTableId.getName}")
     withTable(request.getDasId, request.getTableId, responseObserver) { table =>
       val rows = table.bulkInsert(request.getRowsList)
       responseObserver.onNext(BulkInsertTableResponse.newBuilder().addAllRows(rows).build())
@@ -396,7 +396,7 @@ class TableServiceGrpcImpl(
    * @param responseObserver The observer to send responses.
    */
   override def updateTable(request: UpdateTableRequest, responseObserver: StreamObserver[UpdateTableResponse]): Unit = {
-    logger.debug(s"Updating rows in Table ID: ${request.getTableId.getName}")
+    logger.info(s"Updating rows in Table ID: ${request.getTableId.getName}")
     withTable(request.getDasId, request.getTableId, responseObserver) { table =>
       val newRow = table.update(request.getRowId, request.getNewRow)
       responseObserver.onNext(UpdateTableResponse.newBuilder().setRow(newRow).build())
@@ -412,7 +412,7 @@ class TableServiceGrpcImpl(
    * @param responseObserver The observer to send responses.
    */
   override def deleteTable(request: DeleteTableRequest, responseObserver: StreamObserver[DeleteTableResponse]): Unit = {
-    logger.debug(s"Deleting rows from Table ID: ${request.getTableId.getName}")
+    logger.info(s"Deleting rows from Table ID: ${request.getTableId.getName}")
     withTable(request.getDasId, request.getTableId, responseObserver) { table =>
       table.delete(request.getRowId)
       responseObserver.onNext(DeleteTableResponse.getDefaultInstance)
