@@ -146,6 +146,11 @@ lazy val root = (project in file("."))
       // Web UI
       "com.typesafe.akka" %% "akka-http" % "10.5.3",
       "com.lihaoyi" %% "scalatags" % "0.13.1",
+      // Metrics
+      "io.kamon" %% "kamon-bundle" % "2.7.5",
+      "io.kamon" %% "kamon-prometheus" % "2.7.5",
+      // Add Kanela agent for instrumentation
+      "io.kamon" % "kanela-agent" % "1.0.18" % "provided",
       // Jackson databind
       "com.fasterxml.jackson.core" % "jackson-databind" % "2.18.2" % Test,
       // gRPC Testing
