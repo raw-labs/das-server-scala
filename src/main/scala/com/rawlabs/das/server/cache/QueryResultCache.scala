@@ -99,6 +99,7 @@ class QueryResultCache(maxEntries: Int, maxChunksPerEntry: Int) extends StrictLo
    * Registers the result (a sequence of row chunks) in the cache.
    */
   def put(key: QueryCacheKey, result: Seq[Rows]): Unit = {
+    cacheEntriesGauge.update(cache.size())
     cache.put(key.toString, result)
   }
 
@@ -106,7 +107,6 @@ class QueryResultCache(maxEntries: Int, maxChunksPerEntry: Int) extends StrictLo
    * Returns a list of cache keys and their sizes.
    */
   def getCacheStats: Seq[(String, Int, Seq[Int])] = {
-    cacheEntriesGauge.update(cache.size())
     cache.asMap().asScala.map { case (key, value) => (key, value.size, value.map(_.getSerializedSize)) }.toSeq
   }
 
