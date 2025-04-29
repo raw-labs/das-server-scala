@@ -85,6 +85,7 @@ object DASServer {
   def main(args: Array[String]): Unit = {
     // 1) Load settings
     implicit val settings: DASSettings = new DASSettings()
+    Kamon.init()
 
     // 2) Start the actor system
     implicit val system: ActorSystem[Nothing] = ActorSystem[Nothing](Behaviors.empty, "das-server")
@@ -107,10 +108,8 @@ object DASServer {
     // 5) Start the grpc server
     val port = settings.getInt("das.server.port")
     val dasServer = new DASServer(resultCache)
-    Kamon.init()
     try {
       dasServer.start(port)
-
       // Block until shutdown
       dasServer.blockUntilShutdown()
     } finally {

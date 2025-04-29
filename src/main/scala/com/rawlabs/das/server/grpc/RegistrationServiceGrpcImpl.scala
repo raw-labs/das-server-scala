@@ -27,6 +27,7 @@ import com.typesafe.scalalogging.StrictLogging
 
 import io.grpc.Status
 import io.grpc.stub.StreamObserver
+import kamon.Kamon
 
 /**
  * gRPC service implementation for registering and unregistering DAS (Data Access Service) instances.
@@ -37,6 +38,14 @@ class RegistrationServiceGrpcImpl(dasSdkManager: DASSdkManager)
     extends RegistrationServiceGrpc.RegistrationServiceImplBase
     with StrictLogging {
 
+  private val registerHistogram = Kamon
+    .histogram("das.registration.time")
+    .withTag("registration", "register")
+
+  private val unregisterHistogram = Kamon
+    .histogram("das.unregistration.time")
+    .withTag("registration", "unregister")
+
   /**
    * Registers a new DAS instance based on the provided definition.
    *
@@ -46,10 +55,13 @@ class RegistrationServiceGrpcImpl(dasSdkManager: DASSdkManager)
   override def register(request: RegisterRequest, responseObserver: StreamObserver[RegisterResponse]): Unit = {
     logger.debug(s"Registering DAS with type: ${request.getDefinition.getType}")
     try {
+      val startTime = System.currentTimeMillis()
       val dasId = dasSdkManager.registerDAS(
         request.getDefinition.getType,
         request.getDefinition.getOptionsMap.asScala.toMap,
         maybeDasId = if (request.hasId) Some(request.getId) else None)
+      registerHistogram.record(System.currentTimeMillis() - startTime)
+
       responseObserver.onNext(dasId)
       responseObserver.onCompleted()
       logger.debug(s"DAS registered successfully with ID: $dasId")
@@ -80,8 +92,10 @@ class RegistrationServiceGrpcImpl(dasSdkManager: DASSdkManager)
    * @param responseObserver The observer to send responses.
    */
   override def unregister(request: DASId, responseObserver: StreamObserver[UnregisterResponse]): Unit = {
+    val startTime = System.currentTimeMillis()
     logger.debug(s"Unregistering DAS with ID: ${request.getId}")
     dasSdkManager.unregisterDAS(request)
+    unregisterHistogram.record(System.currentTimeMillis() - startTime)
     responseObserver.onNext(UnregisterResponse.newBuilder().build())
     responseObserver.onCompleted()
     logger.debug(s"DAS unregistered successfully with ID: ${request.getId}")
