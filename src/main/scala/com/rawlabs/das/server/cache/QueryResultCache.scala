@@ -66,7 +66,7 @@ final class ResultBuffer(resultCache: QueryResultCache, key: QueryCacheKey, maxS
 class QueryResultCache(maxEntries: Int, maxChunksPerEntry: Int) extends StrictLogging {
 
   private val cacheEntriesGauge = Kamon
-    .gauge("das.query-cache.cache-entries")
+    .gauge("query_cache_entries")
     .withTag("counter", "cache-entries")
 
   // Create a Guava cache with a maximum size and a removal listener to log evictions.
@@ -74,6 +74,7 @@ class QueryResultCache(maxEntries: Int, maxChunksPerEntry: Int) extends StrictLo
     .newBuilder()
     .maximumSize(maxEntries)
     .removalListener((notification: RemovalNotification[String, Seq[Rows]]) => {
+      cacheEntriesGauge.update(cache.size().toDouble)
       logger.info(s"Entry for key [${notification.getKey}] removed due to ${notification.getCause}")
     })
     .build[String, Seq[Rows]]()
@@ -99,8 +100,8 @@ class QueryResultCache(maxEntries: Int, maxChunksPerEntry: Int) extends StrictLo
    * Registers the result (a sequence of row chunks) in the cache.
    */
   def put(key: QueryCacheKey, result: Seq[Rows]): Unit = {
-    cacheEntriesGauge.update(cache.size())
     cache.put(key.toString, result)
+    cacheEntriesGauge.update(cache.size().toDouble)
   }
 
   /**

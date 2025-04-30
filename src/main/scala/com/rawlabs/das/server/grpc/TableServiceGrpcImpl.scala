@@ -33,7 +33,6 @@ import com.typesafe.scalalogging.StrictLogging
 import io.grpc.stub.{ServerCallStreamObserver, StreamObserver}
 import io.grpc.{Status, StatusRuntimeException}
 import kamon.Kamon
-import util.control.NonFatal
 
 /**
  * Implementation of the gRPC service for handling table-related operations.
@@ -46,28 +45,20 @@ class TableServiceGrpcImpl(
     resultCache: QueryResultCache,
     batchLatency: FiniteDuration = 500.millis)(implicit val ec: ExecutionContext, materializer: Materializer)
     extends TablesServiceGrpc.TablesServiceImplBase
-    with StrictLogging {
+    with StrictLogging
+    with GrpcMetrics {
 
-  // Metrics for monitoring table operations
-  private val tableExecTimer = Kamon
-    .timer("das.table.execute-time")
-    .withTag("operation", "execute")
-  private val tableExecSuccessCounter = Kamon
-    .counter("das.table.execute.success")
-    .withTag("counter", "success")
-  private val tableExecErrorCounter = Kamon
-    .counter("das.table.execute.error")
-    .withTag("counter", "error")
+  protected val serviceName = "TableService"
+
   private val tableInFlightGauge = Kamon
-    .gauge("das.table.in-flight")
-    .withTag("counter", "in-flight")
-  private val cacheHitCounter = Kamon
-    .counter("das.table.cache-hit")
-    .withTag("counter", "cache-hit")
-  private val cacheMissCounter = Kamon
-    .counter("das.table.cache-miss")
-    .withTag("counter", "cache-miss")
-
+    .rangeSampler("in_flight_queries")
+    .withTag("service", "TableService")
+  private val cacheHitTotal  = Kamon
+    .counter("das_query_cache_hit_total")
+    .withTag("service", "TableService")
+  private val cacheMissTotal = Kamon
+    .counter("das_query_cache_miss_total")
+    .withTag("service", "TableService")
   /**
    * Retrieves table definitions based on the DAS ID provided in the request.
    *
@@ -155,7 +146,7 @@ class TableServiceGrpcImpl(
    */
   override def explainTable(
       request: ExplainTableRequest,
-      responseObserver: StreamObserver[ExplainTableResponse]): Unit = {
+      responseObserver: StreamObserver[ExplainTableResponse]): Unit = withMetrics("explainTable") {
     logger.debug(s"Explaining query for Table ID: ${request.getTableId.getName}")
     withTable(request.getDasId, request.getTableId, responseObserver) { table =>
       val explanation =
@@ -178,11 +169,10 @@ class TableServiceGrpcImpl(
    * @param request The request containing query details.
    * @param responseObserver The observer to send responses.
    */
-  override def executeTable(request: ExecuteTableRequest, responseObserver: StreamObserver[Rows]): Unit = {
-    logger.debug(s"Executing query for Table ID: ${request.getTableId.getName}")
+  override def executeTable(request: ExecuteTableRequest, responseObserver: StreamObserver[Rows]): Unit =
+    withMetrics("executeTable") {
+      logger.debug(s"Executing query for Table ID: ${request.getTableId.getName}")
 
-    val timer = tableExecTimer.start()
-    try {
       // Check if the responseObserver is a ServerCallStreamObserver. If so, we can set an onCancel handler.
       val maybeServerCallObs: Option[ServerCallStreamObserver[Rows]] = responseObserver match {
         case sco: ServerCallStreamObserver[Rows] => Some(sco)
@@ -252,12 +242,12 @@ class TableServiceGrpcImpl(
         // Check if we have a cached result for this query
         val source: Source[Rows, NotUsed] = resultCache.get(key) match {
           case Some(iterator) =>
-            cacheHitCounter.increment()
+            cacheHitTotal.increment()
             // We do. Use the iterator to build the Source.
             logger.debug(s"Using cached result for $request.")
             Source.fromIterator(() => iterator)
           case None =>
-            cacheMissCounter.increment()
+            cacheMissTotal.increment()
             // We don't. Run the query and build a Source that populates a new cache entry.
             // We tap the source to cache the results as they are streamed to the client.
             // A callback is added to the source to mark the cache entry as done when the stream completes.
@@ -285,16 +275,8 @@ class TableServiceGrpcImpl(
         // Store the kill switch so that we can cancel the stream if needed.
         killSwitchRef.set(Some(ks))
       }
-      tableExecSuccessCounter.increment()
-    } catch {
-      case NonFatal(t) =>
-        tableExecErrorCounter.increment()
-        throw t
-    } finally {
-      // Stop the timer when the request is completed.
-      timer.stop()
+
     }
-  }
 
   /**
    * Runs the given Source[Rows, NotUsed] and streams its data to the gRPC client. The stream is connected to a
@@ -364,7 +346,7 @@ class TableServiceGrpcImpl(
    */
   override def getTableUniqueColumn(
       request: GetTableUniqueColumnRequest,
-      responseObserver: StreamObserver[GetTableUniqueColumnResponse]): Unit = {
+      responseObserver: StreamObserver[GetTableUniqueColumnResponse]): Unit = withMetrics("getTableUniqueColumn") {
     logger.debug(s"Fetching unique columns for Table ID: ${request.getTableId.getName}")
     withTable(request.getDasId, request.getTableId, responseObserver) { table =>
       val response = GetTableUniqueColumnResponse.newBuilder().setColumn(table.uniqueColumn).build()
@@ -382,7 +364,7 @@ class TableServiceGrpcImpl(
    */
   override def getBulkInsertTableSize(
       request: GetBulkInsertTableSizeRequest,
-      responseObserver: StreamObserver[GetBulkInsertTableSizeResponse]): Unit = {
+      responseObserver: StreamObserver[GetBulkInsertTableSizeResponse]): Unit = withMetrics("getBulkInsertTableSize") {
     logger.debug(s"Fetching bulk insert size for Table ID: ${request.getTableId.getName}")
     withTable(request.getDasId, request.getTableId, responseObserver) { table =>
       val batchSize = table.bulkInsertBatchSize()
@@ -399,15 +381,16 @@ class TableServiceGrpcImpl(
    * @param request The request containing the row to be inserted.
    * @param responseObserver The observer to send responses.
    */
-  override def insertTable(request: InsertTableRequest, responseObserver: StreamObserver[InsertTableResponse]): Unit = {
-    logger.debug(s"Inserting row into Table ID: ${request.getTableId.getName}")
-    withTable(request.getDasId, request.getTableId, responseObserver) { table =>
-      val row = table.insert(request.getRow)
-      responseObserver.onNext(InsertTableResponse.newBuilder().setRow(row).build())
-      responseObserver.onCompleted()
-      logger.debug("Row inserted successfully.")
+  override def insertTable(request: InsertTableRequest, responseObserver: StreamObserver[InsertTableResponse]): Unit =
+    withMetrics("insertTable") {
+      logger.debug(s"Inserting row into Table ID: ${request.getTableId.getName}")
+      withTable(request.getDasId, request.getTableId, responseObserver) { table =>
+        val row = table.insert(request.getRow)
+        responseObserver.onNext(InsertTableResponse.newBuilder().setRow(row).build())
+        responseObserver.onCompleted()
+        logger.debug("Row inserted successfully.")
+      }
     }
-  }
 
   /**
    * Performs a bulk insert of multiple rows into the specified table.
@@ -417,7 +400,7 @@ class TableServiceGrpcImpl(
    */
   override def bulkInsertTable(
       request: BulkInsertTableRequest,
-      responseObserver: StreamObserver[BulkInsertTableResponse]): Unit = {
+      responseObserver: StreamObserver[BulkInsertTableResponse]): Unit = withMetrics("bulkInsertTable") {
     logger.debug(s"Performing bulk insert into Table ID: ${request.getTableId.getName}")
     withTable(request.getDasId, request.getTableId, responseObserver) { table =>
       val rows = table.bulkInsert(request.getRowsList)
@@ -433,15 +416,16 @@ class TableServiceGrpcImpl(
    * @param request The request containing the unique columns and new values.
    * @param responseObserver The observer to send responses.
    */
-  override def updateTable(request: UpdateTableRequest, responseObserver: StreamObserver[UpdateTableResponse]): Unit = {
-    logger.debug(s"Updating rows in Table ID: ${request.getTableId.getName}")
-    withTable(request.getDasId, request.getTableId, responseObserver) { table =>
-      val newRow = table.update(request.getRowId, request.getNewRow)
-      responseObserver.onNext(UpdateTableResponse.newBuilder().setRow(newRow).build())
-      responseObserver.onCompleted()
-      logger.debug("Rows updated successfully.")
+  override def updateTable(request: UpdateTableRequest, responseObserver: StreamObserver[UpdateTableResponse]): Unit =
+    withMetrics("updateTable") {
+      logger.debug(s"Updating rows in Table ID: ${request.getTableId.getName}")
+      withTable(request.getDasId, request.getTableId, responseObserver) { table =>
+        val newRow = table.update(request.getRowId, request.getNewRow)
+        responseObserver.onNext(UpdateTableResponse.newBuilder().setRow(newRow).build())
+        responseObserver.onCompleted()
+        logger.debug("Rows updated successfully.")
+      }
     }
-  }
 
   /**
    * Deletes rows from the specified table based on the unique columns provided.
@@ -449,15 +433,16 @@ class TableServiceGrpcImpl(
    * @param request The request containing the unique columns.
    * @param responseObserver The observer to send responses.
    */
-  override def deleteTable(request: DeleteTableRequest, responseObserver: StreamObserver[DeleteTableResponse]): Unit = {
-    logger.debug(s"Deleting rows from Table ID: ${request.getTableId.getName}")
-    withTable(request.getDasId, request.getTableId, responseObserver) { table =>
-      table.delete(request.getRowId)
-      responseObserver.onNext(DeleteTableResponse.getDefaultInstance)
-      responseObserver.onCompleted()
-      logger.debug("Rows deleted successfully.")
+  override def deleteTable(request: DeleteTableRequest, responseObserver: StreamObserver[DeleteTableResponse]): Unit =
+    withMetrics("deleteTable") {
+      logger.debug(s"Deleting rows from Table ID: ${request.getTableId.getName}")
+      withTable(request.getDasId, request.getTableId, responseObserver) { table =>
+        table.delete(request.getRowId)
+        responseObserver.onNext(DeleteTableResponse.getDefaultInstance)
+        responseObserver.onCompleted()
+        logger.debug("Rows deleted successfully.")
+      }
     }
-  }
 
   private def withDAS(DASId: DASId, responseObserver: StreamObserver[_])(f: DASSdk => Unit): Unit = {
     provider.getDAS(DASId) match {

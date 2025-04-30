@@ -38,7 +38,10 @@ import io.grpc.stub.StreamObserver
  */
 class FunctionServiceGrpcImpl(provider: DASSdkManager)
     extends FunctionsServiceGrpc.FunctionsServiceImplBase
-    with StrictLogging {
+    with StrictLogging
+    with GrpcMetrics {
+
+  protected val serviceName = "FunctionService"
 
   /**
    * Retrieves function definitions based on the DAS ID (and optionally environment) provided in the request.
@@ -48,7 +51,7 @@ class FunctionServiceGrpcImpl(provider: DASSdkManager)
    */
   override def getFunctionDefinitions(
       request: GetFunctionDefinitionsRequest,
-      responseObserver: StreamObserver[GetFunctionDefinitionsResponse]): Unit = {
+      responseObserver: StreamObserver[GetFunctionDefinitionsResponse]): Unit = withMetrics("getFunctionDefinitions") {
     logger.debug(s"Fetching function definitions for DAS ID: ${request.getDasId}")
 
     withDAS(request.getDasId, responseObserver) { das =>
@@ -72,7 +75,7 @@ class FunctionServiceGrpcImpl(provider: DASSdkManager)
    */
   override def executeFunction(
       request: ExecuteFunctionRequest,
-      responseObserver: StreamObserver[ExecuteFunctionResponse]): Unit = {
+      responseObserver: StreamObserver[ExecuteFunctionResponse]): Unit = withMetrics("executeFunction") {
     logger.debug(s"Executing function for DAS ID: ${request.getDasId}, function ID: ${request.getFunctionId.getName}")
 
     withFunction(request.getDasId, request.getFunctionId, responseObserver) { function =>

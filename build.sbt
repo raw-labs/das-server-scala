@@ -148,6 +148,7 @@ lazy val root = (project in file("."))
       "com.lihaoyi" %% "scalatags" % "0.13.1",
       // Metrics
       "io.kamon" %% "kamon-bundle" % "2.7.5",
+      "io.kamon" %% "kamon-system-metrics" % "2.7.5",
       "io.kamon" %% "kamon-prometheus" % "2.7.5",
       // Add Kanela agent for instrumentation
       "io.kamon" % "kanela-agent" % "1.0.18" % "provided",
