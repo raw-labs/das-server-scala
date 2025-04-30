@@ -12,9 +12,8 @@
 
 package com.rawlabs.das.mock.functions
 
-import com.rawlabs.das.sdk.DASSdkInvalidArgumentException
 import com.rawlabs.protocol.das.v1.common.Environment
-import com.rawlabs.protocol.das.v1.functions.{FunctionDefinition, FunctionId, ParameterDefinition}
+import com.rawlabs.protocol.das.v1.functions.{FunctionDefinition, FunctionId}
 import com.rawlabs.protocol.das.v1.types._
 
 class RockAlbumsListOfRecordsWithNestedList extends DASMockFunction {

@@ -20,6 +20,8 @@ import com.rawlabs.protocol.das.v1.services.ExecuteTableRequest
 import com.rawlabs.protocol.das.v1.tables.Rows
 import com.typesafe.scalalogging.StrictLogging
 
+import kamon.Kamon
+
 final case class QueryCacheKey(request: ExecuteTableRequest)
 
 /**
@@ -63,11 +65,16 @@ final class ResultBuffer(resultCache: QueryResultCache, key: QueryCacheKey, maxS
  */
 class QueryResultCache(maxEntries: Int, maxChunksPerEntry: Int) extends StrictLogging {
 
+  private val cacheEntriesGauge = Kamon
+    .gauge("query_cache_entries")
+    .withTag("counter", "cache-entries")
+
   // Create a Guava cache with a maximum size and a removal listener to log evictions.
   private val cache: Cache[String, Seq[Rows]] = CacheBuilder
     .newBuilder()
     .maximumSize(maxEntries)
     .removalListener((notification: RemovalNotification[String, Seq[Rows]]) => {
+      cacheEntriesGauge.update(cache.size().toDouble)
       logger.info(s"Entry for key [${notification.getKey}] removed due to ${notification.getCause}")
     })
     .build[String, Seq[Rows]]()
@@ -94,6 +101,7 @@ class QueryResultCache(maxEntries: Int, maxChunksPerEntry: Int) extends StrictLo
    */
   def put(key: QueryCacheKey, result: Seq[Rows]): Unit = {
     cache.put(key.toString, result)
+    cacheEntriesGauge.update(cache.size().toDouble)
   }
 
   /**

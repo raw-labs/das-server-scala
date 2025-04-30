@@ -146,6 +146,12 @@ lazy val root = (project in file("."))
       // Web UI
       "com.typesafe.akka" %% "akka-http" % "10.5.3",
       "com.lihaoyi" %% "scalatags" % "0.13.1",
+      // Metrics
+      "io.kamon" %% "kamon-bundle" % "2.7.5",
+      "io.kamon" %% "kamon-system-metrics" % "2.7.5",
+      "io.kamon" %% "kamon-prometheus" % "2.7.5",
+      // Add Kanela agent for instrumentation
+      "io.kamon" % "kanela-agent" % "1.0.18" % "provided",
       // Jackson databind
       "com.fasterxml.jackson.core" % "jackson-databind" % "2.18.2" % Test,
       // gRPC Testing
@@ -153,7 +159,8 @@ lazy val root = (project in file("."))
       // Postgres
       "org.postgresql" % "postgresql" % "42.7.4" % Test,
       // Testing
-      "org.scalatest" %% "scalatest" % "3.2.19" % Test),
+      "org.scalatest" %% "scalatest" % "3.2.19" % Test,
+      "io.kamon" %% "kamon-testkit" % "2.7.5" % Test),
     dockerSettings)
 
 lazy val printDockerImageName = taskKey[Unit]("Prints the full Docker image name that will be produced")

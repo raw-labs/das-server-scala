@@ -38,6 +38,7 @@ import com.rawlabs.protocol.das.v1.services.{
 }
 
 import io.grpc.{Server, ServerBuilder}
+import kamon.Kamon
 
 class DASServer(resultCache: QueryResultCache)(
     implicit settings: DASSettings,
@@ -84,6 +85,7 @@ object DASServer {
   def main(args: Array[String]): Unit = {
     // 1) Load settings
     implicit val settings: DASSettings = new DASSettings()
+    Kamon.init()
 
     // 2) Start the actor system
     implicit val system: ActorSystem[Nothing] = ActorSystem[Nothing](Behaviors.empty, "das-server")
@@ -106,10 +108,13 @@ object DASServer {
     // 5) Start the grpc server
     val port = settings.getInt("das.server.port")
     val dasServer = new DASServer(resultCache)
-    dasServer.start(port)
-
-    // Block until shutdown
-    dasServer.blockUntilShutdown()
+    try {
+      dasServer.start(port)
+      // Block until shutdown
+      dasServer.blockUntilShutdown()
+    } finally {
+      Kamon.stop()
+    }
   }
 
 }
