@@ -159,7 +159,8 @@ lazy val root = (project in file("."))
       // Postgres
       "org.postgresql" % "postgresql" % "42.7.4" % Test,
       // Testing
-      "org.scalatest" %% "scalatest" % "3.2.19" % Test),
+      "org.scalatest" %% "scalatest" % "3.2.19" % Test,
+      "io.kamon" %% "kamon-testkit" % "2.7.5" % Test),
     dockerSettings)
 
 lazy val printDockerImageName = taskKey[Unit]("Prints the full Docker image name that will be produced")

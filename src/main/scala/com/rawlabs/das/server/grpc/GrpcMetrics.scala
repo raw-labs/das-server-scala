@@ -17,17 +17,39 @@ import scala.util.control.NonFatal
 import kamon.Kamon
 import kamon.metric.MeasurementUnit
 
+/**
+ * Simple Kamon instrumentation for gRPC services.
+ *
+ * This adds two metrics:
+ *   - grpc_requests_total: Counter of requests, tagged with service, method and status (OK/FAIL).
+ *   - grpc_requests_latency_millis: Histogram of request latencies, tagged with service, method and status (OK/FAIL).
+ *
+ * Mix this trait in and wrap each RPC entry-point with:
+ * {{{
+ *   withMetrics("methodName") { ... }
+ * }}}
+ */
 trait GrpcMetrics {
+
+  /** Name of the concrete gRPC service (e.g. "TableService"). */
   protected def serviceName: String
 
-  private val grpcRequestCounter = Kamon
+  private lazy val grpcRequestCounter = Kamon
     .counter("grpc_requests_total")
     .withTag("grpc_service", serviceName)
-  private val requestTimeHistogram = Kamon
+  private lazy val requestTimeHistogram = Kamon
     .histogram("grpc_requests_latency_millis", MeasurementUnit.time.milliseconds)
     .withTag("grpc_service", serviceName)
 
-  protected def withMetrics[T](operationName: String)(f: => T): T = {
+  /**
+   * Wrap a block of code (<i>typically the body of a gRPC method</i>) with automatic metric collection.
+   *
+   * @param operationName Logical name of the RPC method, used for tagging.
+   * @param f Code block to execute.
+   * @tparam T Return type of the code block.
+   * @return The value produced by {@code f} .
+   */
+  def withMetrics[T](operationName: String)(f: => T): T = {
     val start = System.currentTimeMillis()
 
     try {
