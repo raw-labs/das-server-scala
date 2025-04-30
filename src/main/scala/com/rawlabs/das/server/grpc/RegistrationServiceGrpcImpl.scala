@@ -12,15 +12,21 @@
 
 package com.rawlabs.das.server.grpc
 
-import com.rawlabs.das.sdk.{DASSdkInvalidArgumentException, DASSdkPermissionDeniedException, DASSdkUnauthenticatedException, DASSdkUnsupportedException}
+import scala.jdk.CollectionConverters._
+
+import com.rawlabs.das.sdk.{
+  DASSdkInvalidArgumentException,
+  DASSdkPermissionDeniedException,
+  DASSdkUnauthenticatedException,
+  DASSdkUnsupportedException
+}
 import com.rawlabs.das.server.manager.DASSdkManager
 import com.rawlabs.protocol.das.v1.common.DASId
 import com.rawlabs.protocol.das.v1.services._
 import com.typesafe.scalalogging.StrictLogging
+
 import io.grpc.Status
 import io.grpc.stub.StreamObserver
-
-import scala.jdk.CollectionConverters._
 
 /**
  * gRPC service implementation for registering and unregistering DAS (Data Access Service) instances.

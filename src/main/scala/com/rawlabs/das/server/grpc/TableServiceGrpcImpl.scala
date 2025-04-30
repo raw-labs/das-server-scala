@@ -53,12 +53,13 @@ class TableServiceGrpcImpl(
   private val tableInFlightGauge = Kamon
     .rangeSampler("in_flight_queries")
     .withTag("service", "TableService")
-  private val cacheHitTotal  = Kamon
+  private val cacheHitTotal = Kamon
     .counter("das_query_cache_hit_total")
     .withTag("service", "TableService")
   private val cacheMissTotal = Kamon
     .counter("das_query_cache_miss_total")
     .withTag("service", "TableService")
+
   /**
    * Retrieves table definitions based on the DAS ID provided in the request.
    *
